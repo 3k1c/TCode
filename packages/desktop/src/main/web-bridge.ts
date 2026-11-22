@@ -13,11 +13,28 @@ import {
 import { app } from "electron";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { invokeRegistry } from "./ipc/invoke";
-import { browseProjectFolders } from "./project-folders";
+import { browseProjectFolders, createProjectFolder } from "./project-folders";
 
 const WS_PATH = "/api/ws";
 
 const AUTH_CHECK_PATH = "/api/auth-check";
+
+/** Limit the write endpoint to a small JSON body; never accept file contents. */
+async function readFolderCreation(req: IncomingMessage): Promise<{ parent: string; name: string }> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const part of req) {
+    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+    bytes += chunk.length;
+    if (bytes > 2048) throw new Error("REQUEST_TOO_LARGE");
+    chunks.push(chunk);
+  }
+  const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!value || typeof value !== "object") throw new Error("INVALID_INPUT");
+  const data = value as Record<string, unknown>;
+  if (typeof data.parent !== "string" || typeof data.name !== "string") throw new Error("INVALID_INPUT");
+  return { parent: data.parent, name: data.name };
+}
 const HEARTBEAT_MS = 25_000;
 
 const LOST_AFTER_MS = 70_000;
@@ -500,6 +517,39 @@ export class WebBridgeService {
 
 		const server: Server = createServer((req, res) => {
 			const url = new URL(req.url ?? "/", "http://127.0.0.1");
+			if (req.method === "POST" && url.pathname === "/api/project-folders") {
+				const headers = {
+					"content-type": "application/json; charset=utf-8",
+					"cache-control": "no-store",
+					"x-content-type-options": "nosniff",
+				};
+				let sameOrigin = false;
+				try {
+					sameOrigin = !!req.headers.origin &&
+						new URL(req.headers.origin).host.toLowerCase() === req.headers.host?.toLowerCase();
+				} catch {}
+				if (!this.cookieAuthorized(req) || !sameOrigin ||
+					req.headers["x-tcode-folder-action"] !== "create" ||
+					!/^application\/json(?:;|$)/i.test(req.headers["content-type"] ?? "")) {
+					res.writeHead(403, headers).end(JSON.stringify({ error: "無權建立資料夾。" }));
+					return;
+				}
+				void readFolderCreation(req).then(({ parent, name }) => {
+					try {
+						const path = createProjectFolder(parent, name);
+						res.writeHead(201, headers).end(JSON.stringify({ path }));
+					} catch (e) {
+						const code = (e as NodeJS.ErrnoException).code;
+						const conflict = code === "EEXIST";
+						res.writeHead(conflict ? 409 : 400, headers).end(JSON.stringify({
+							error: conflict ? "已有同名檔案或資料夾。" : "無法建立資料夾。請檢查名稱及寫入權限。",
+						}));
+					}
+				}).catch(() => {
+					if (!res.headersSent) res.writeHead(400, headers).end(JSON.stringify({ error: "建立資料夾請求無效。" }));
+				});
+				return;
+			}
 			if (req.method !== "GET") {
 				res.writeHead(405).end();
 				return;

@@ -193,6 +193,32 @@ describe("web 桥口令闸门", () => {
 		expect(missing.status).toBe(400);
 	});
 
+	it("creates a project directory only with cookie, same origin, and explicit JSON action", async () => {
+		await startListening();
+		const parent = join(root, "new-projects");
+		mkdirSync(parent);
+		const endpoint = `${base}/api/project-folders`;
+		const payload = JSON.stringify({ parent, name: "New Project" });
+		const token = service?.status().token ?? "";
+		const pair = await fetch(`${base}/?token=${token}`, { redirect: "manual" });
+		const cookie = (pair.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+		const validHeaders = { cookie, origin: base, "content-type": "application/json", "x-tcode-folder-action": "create" };
+		const post = (headers: Record<string, string>, body = payload) =>
+			fetch(endpoint, { method: "POST", headers, body });
+		expect((await post({ origin: base, "content-type": "application/json", "x-tcode-folder-action": "create" })).status).toBe(403);
+		expect((await post({ ...validHeaders, origin: "https://attacker.invalid" })).status).toBe(403);
+		expect((await post({ ...validHeaders, "x-tcode-folder-action": "other" })).status).toBe(403);
+		expect((await post({ ...validHeaders, "content-type": "text/plain" })).status).toBe(403);
+		const created = await post(validHeaders);
+		expect(created.status).toBe(201);
+		const json = await created.json() as { path: string };
+		expect(json.path).toContain("New Project");
+		expect((await post(validHeaders)).status).toBe(409);
+		expect((await post(validHeaders, JSON.stringify({ parent, name: "../escape" }))).status).toBe(400);
+		expect((await post(validHeaders, JSON.stringify({ parent, name: "x".repeat(2500) }))).status).toBe(400);
+		expect((await fetch(`${endpoint}?path=${encodeURIComponent(parent)}`, { headers: { cookie } })).status).toBe(200);
+	});
+
 	it("配置迁移：旧文件无 token → 补齐写回且跨重启稳定；损坏文件不覆写", async () => {
 		const first = (
 			await startService(JSON.stringify({ enabled: false, port: 1300, scope: "local" }))

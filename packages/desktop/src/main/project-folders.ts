@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, isAbsolute, join, parse, relative, sep } from "node:path";
 
@@ -13,6 +13,25 @@ export interface ProjectFolderListing {
 }
 
 const MAX_FOLDERS = 400;
+
+/** Create one child directory only; never reuse, overwrite or recursively create missing parents. */
+export function createProjectFolder(parentPath: string, folderName: string): string {
+  if (typeof parentPath !== "string" || typeof folderName !== "string") {
+    throw new Error("INVALID_FOLDER_INPUT");
+  }
+  if (folderName.length === 0 || folderName.length > 120 ||
+      folderName !== folderName.trim() || folderName.endsWith(".") ||
+      /[<>:"/\\|?*\x00-\x1f]/.test(folderName) ||
+      folderName === "." || folderName === ".." ||
+      /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(folderName)) {
+    throw new Error("INVALID_FOLDER_NAME");
+  }
+  const parent = browseProjectFolders(parentPath).current;
+  const target = join(parent, folderName);
+  mkdirSync(target, { recursive: false });
+  return realpathSync(target);
+}
+
 
 export function browseProjectFolders(requestedPath?: string): ProjectFolderListing {
   const requested = requestedPath?.trim() || homedir();
