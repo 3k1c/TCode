@@ -70,7 +70,7 @@ export const useProviderLoginStore = create<ProviderLoginStore>((set, get) => ({
 			const event = payload.event;
 			if (event.type === "auth_url") {
 				set({ login: { ...state, authUrl: { url: event.url, instructions: event.instructions } } });
-				if (!browserOpened) {
+				if (!import.meta.env.VITE_TCODE_HEADLESS && !browserOpened) {
 					browserOpened = true;
 					void getPi().openExternal({ url: event.url });
 				}
