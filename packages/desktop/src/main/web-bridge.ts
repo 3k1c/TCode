@@ -144,17 +144,28 @@ function releaseBridgeSession(ws: WebSocket): void {
 }
 
 function extraBridgeHosts(): string[] {
+	// User data survives application updates. Support the documented environment
+	// variable as well, rather than relying on Electron's resources directory.
+	const hosts = new Set<string>();
+	const addHost = (value: string) => {
+		const host = value.trim().toLowerCase();
+		if (/^[a-z0-9.-]+$/.test(host) && host.length <= 253) hosts.add(host);
+	};
+	for (const value of (process.env.TCODE_BRIDGE_HOSTS ?? "").split(",")) addHost(value);
 	const candidates = [
-		join(process.resourcesPath ?? "", "bridge-hosts.json"),
+		join(app.getPath("userData"), "bridge-hosts.json"),
 		join(app.getAppPath(), "resources", "bridge-hosts.json"),
+		...(process.resourcesPath ? [join(process.resourcesPath, "bridge-hosts.json")] : []),
 	];
 	for (const file of candidates) {
 		try {
 			const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-			if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === "string");
+			if (Array.isArray(parsed)) {
+				for (const value of parsed) if (typeof value === "string") addHost(value);
+			}
 		} catch {}
 	}
-	return [];
+	return [...hosts];
 }
 
 function localHosts(): Set<string> {
