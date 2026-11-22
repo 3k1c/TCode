@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LocalRunner } from "../src/local-runner";
 
 const hasPty = await import("node-pty").then(() => true).catch(() => false);
@@ -12,21 +12,28 @@ describe.skipIf(!hasPty)("real PTY (node-pty)", () => {
 		const r = new LocalRunner();
 		let buf = "";
 		let exit: { code: number } | undefined;
-		const ok = await r.createPty({ ptyId: "t", cwd: dir, cols: 90, rows: 20 }, {
-			onData: (d) => { buf += d; },
-			onExit: (e) => { exit = e; },
-		});
-		expect(ok).toBe(true);
-		r.writePty("t", "echo PTY_$((6*7))_OK; tput cols; pwd\n");
-		await new Promise((res) => { const t = setInterval(() => { if (buf.includes("PTY_42_OK")) { clearInterval(t); res(null); } }, 50); setTimeout(() => { clearInterval(t); res(null); }, 5000); });
-		expect(buf).toContain("PTY_42_OK");
-		expect(buf).toContain("90");
-		r.resizePty("t", 120, 30);
-		r.writePty("t", "tput cols\nexit 5\n");
-		await new Promise((res) => { const t = setInterval(() => { if (exit) { clearInterval(t); res(null); } }, 50); setTimeout(() => { clearInterval(t); res(null); }, 5000); });
-		expect(buf).toContain("120");
-		expect(exit?.code).toBe(5);
-		r.stop();
-		rmSync(dir, { recursive: true, force: true });
+		try {
+			const ok = await r.createPty({ ptyId: "t", cwd: dir, cols: 90, rows: 20 }, {
+				onData: (d) => { buf += d; },
+				onExit: (e) => { exit = e; },
+			});
+			expect(ok).toBe(true);
+
+			// Wait for a marker printed AFTER the commands finish.
+			// PTY chunks can split output, and typed commands appear in the echo.
+			r.writePty("t", "printf 'PTY_%s_OK\\n' 42; printf 'COLS_BEFORE=%s\\n' \"$(tput cols)\"; pwd; printf 'BEFORE_%s_DONE\\n' PHASE\n");
+			await vi.waitFor(() => expect(buf).toContain("BEFORE_PHASE_DONE"), { timeout: 10000, interval: 50 });
+			expect(buf).toContain("PTY_42_OK");
+			expect(buf).toMatch(/(?:^|[\r\n])COLS_BEFORE=90(?:[\r\n])/);
+
+			r.resizePty("t", 120, 30);
+			r.writePty("t", "printf 'COLS_AFTER=%s\\n' \"$(tput cols)\"; printf 'AFTER_%s_DONE\\n' PHASE; exit 5\n");
+			await vi.waitFor(() => expect(buf).toContain("AFTER_PHASE_DONE"), { timeout: 10000, interval: 50 });
+			await vi.waitFor(() => expect(exit?.code).toBe(5), { timeout: 10000, interval: 50 });
+			expect(buf).toMatch(/(?:^|[\r\n])COLS_AFTER=120(?:[\r\n])/);
+		} finally {
+			r.stop();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
