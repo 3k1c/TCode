@@ -76,7 +76,22 @@ cpSync(join(desktop, "resources/skills"), join(dist, "resources/skills"), { recu
 
 const renderer = join(desktop, "out/renderer");
 if (existsSync(join(renderer, "index.html"))) {
-	cpSync(renderer, join(dist, "renderer"), { recursive: true });
+	const headlessRenderer = join(dist, "renderer");
+	cpSync(renderer, headlessRenderer, { recursive: true });
+
+	// Headless web shortcut / home-screen icon only; leave Electron artwork unchanged.
+	cpSync(join(here, "assets/web-icons"), join(headlessRenderer, "icons"), { recursive: true });
+	const indexPath = join(headlessRenderer, "index.html");
+	const html = readFileSync(indexPath, "utf8");
+	if (!html.includes("</head>")) throw new Error("headless icon injection: HTML head not found");
+	const iconLinks = [
+		'<meta name="theme-color" content="#ffffff">',
+		'<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">',
+		'<link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png">',
+		'<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">',
+		'<link rel="manifest" href="/icons/manifest.json">',
+	].join("\n    ");
+	writeFileSync(indexPath, html.replace("</head>", `    ${iconLinks}\n  </head>`), "utf8");
 } else {
 	console.warn("! desktop/out/renderer not found — run `npm run build -w packages/desktop` first");
 }

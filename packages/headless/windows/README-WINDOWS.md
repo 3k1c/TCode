@@ -47,7 +47,7 @@ TCode 的後端直接跑在你的 Windows 上，用瀏覽器操作；代理直�
 
 ## 已知限制
 - 瀏覽器拖放檔案無法取得系統路徑：請在訊息裡直接貼檔案路徑，代理會自己讀取。
-- 沒有 PWA 安裝與推播；手機版介面尚未實測。
+- 已提供 Android / Apple 主畫面捷徑圖示與 Web Manifest；尚未支援離線 Service Worker、Web Push。瀏覽器更新後若舊捷徑圖示未變，請刪除捷徑後重新加入。
 - 此 Windows 版在 Linux 環境開發與單元測試，**尚未在真實 Windows 上完整驗證**；請先跑一次 `smoke.mjs`。
 
 ## 更新

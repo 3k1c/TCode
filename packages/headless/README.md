@@ -52,7 +52,7 @@ TCODE_TOKEN=... node scripts/smoke.mjs   # 對運行中的伺服器做端對端�
 ## 已知限制
 
 - 口令是**單一共用口令**（TCode 原設計），沒有逐裝置金鑰；請務必在前面加 Cloudflare Access。
-- 沒有 PWA 安裝、Web Push；手機版介面可用性**尚未實測**（renderer 為桌面版 UI）。
+- 網頁捷徑圖示已支援 Android / Apple Touch Icon 與 Web Manifest；尚未提供離線 Service Worker、Web Push，安裝支援程度依瀏覽器而異。
 - 未以真實 LLM 金鑰跑過完整代理回合；會話建立、檢查點、PTY、git 已測。
 - `LocalRunner` 與原 `component.exe` 行為是依介面與觀察重寫，個別邊角行為（輸出截斷上限、錯誤碼）可能不同。
 - 代理擁有容器內 shell：容器**只掛載需要的工作目錄**，不要掛整個 NAS 或含機密的卷。
