@@ -18,8 +18,17 @@ export function ProvidersPanel() {
 	const loading = useSettingsStore((s) => s.loading);
 	const error = useSettingsStore((s) => s.error);
 
-	const configured = useMemo(
-		() => providers.filter((provider) => provider.configured || provider.custom || provider.managed),
+	// Offer OpenAI sign-in before the provider has credentials. Other providers keep
+	// their existing visibility behavior; Pi remains the source of auth state.
+	const visibleProviders = useMemo(
+		() =>
+			providers.filter(
+				(provider) =>
+					provider.configured ||
+					provider.custom ||
+					provider.managed ||
+					(provider.id === "openai" && !!provider.oauth),
+			),
 		[providers],
 	);
 
@@ -49,7 +58,7 @@ export function ProvidersPanel() {
 					{loading && providers.length === 0 ? (
 						<p className="py-8 text-center text-[13px] text-ink-faint">{t("settings.loading")}</p>
 					) : (
-						<ProviderList providers={configured} />
+						<ProviderList providers={visibleProviders} />
 					)}
 					<CustomProviderForm />
 					<LoginDialog />
