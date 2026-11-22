@@ -9,6 +9,10 @@ name: headless-release
 on:
   schedule:
     - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  # Publish vetted headless feature commits; no loop from bot token branch pushes.
+  push:
+    branches:
+      - headless-nas
   workflow_dispatch:
     inputs:
       merge_upstream:
@@ -77,7 +81,7 @@ jobs:
           v=$(node -p "require('./release/latest.json').version")
           existing=$(gh release list --limit 1 --json tagName --jq 'length')
           echo "version=$v" >> "$GITHUB_OUTPUT"
-          if [ "$n" -gt 0 ] || [ "${{ inputs.force_release }}" = "true" ] || [ "$existing" -eq 0 ]; then
+          if [ "$n" -gt 0 ] || [ "${{ inputs.force_release }}" = "true" ] || [ "$existing" -eq 0 ] || [ "${{ github.event_name }}" = "push" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
             if [ "$existing" -eq 0 ]; then echo "No release exists yet: publishing first release."; fi
           else
