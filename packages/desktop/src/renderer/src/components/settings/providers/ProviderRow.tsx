@@ -4,6 +4,7 @@ import { useT } from "../../../i18n";
 import { useProviderLoginStore } from "../../../stores/provider-login";
 import { useSettingsStore } from "../../../stores/settings";
 import { EditIcon, ExpandArrowIcon, LoginIcon, TestIcon, TrashIcon } from "../../icons";
+import { Button } from "../../ui/Button";
 import { Switch } from "../../ui/Switch";
 import { Tooltip } from "../../ui/Tooltip";
 import { BuiltinProviderEditForm } from "./BuiltinProviderEditForm";
@@ -131,19 +132,30 @@ export function ProviderRow({ provider }: { provider: ProviderInfo }) {
 					</IconAction>
 				)}
 
-				{!provider.custom && (provider.oauth || provider.apiKeyLogin) && (
-					<IconAction
-						label={
-							provider.oauth
-								? (provider.oauth.loginLabel ?? t("settings.providers.login"))
-								: t("settings.providers.loginApiKey")
-						}
-						disabled={loginActive}
-						onClick={() => void startLogin(provider)}
-					>
-						<LoginIcon />
-					</IconAction>
-				)}
+				{!provider.custom && (provider.oauth || provider.apiKeyLogin) &&
+					(provider.id === "openai" && !provider.configured && provider.oauth ? (
+						<Button
+							variant="primary"
+							size="sm"
+							className="shrink-0 whitespace-nowrap"
+							disabled={loginActive}
+							onClick={() => void startLogin(provider)}
+						>
+							OpenAI OAuth
+						</Button>
+					) : (
+						<IconAction
+							label={
+								provider.oauth
+									? (provider.oauth.loginLabel ?? t("settings.providers.login"))
+									: t("settings.providers.loginApiKey")
+							}
+							disabled={loginActive}
+							onClick={() => void startLogin(provider)}
+						>
+							<LoginIcon />
+						</IconAction>
+					))}
 				{!provider.managed && (
 					<IconAction
 						label={fullEdit ? t("settings.providers.editCustom") : t("settings.providers.builtinEdit")}
