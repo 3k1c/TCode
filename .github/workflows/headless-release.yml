@@ -68,11 +68,20 @@ jobs:
 
       - name: Decide whether to publish
         id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           n=$(node -p "require('./release/latest.json').upstreamCommits")
           v=$(node -p "require('./release/latest.json').version")
+          existing=$(gh release list --limit 1 --json tagName --jq 'length')
           echo "version=$v" >> "$GITHUB_OUTPUT"
-          if [ "$n" -gt 0 ] || [ "${{ inputs.force_release }}" = "true" ]; then echo "publish=true" >> "$GITHUB_OUTPUT"; else echo "publish=false" >> "$GITHUB_OUTPUT"; echo "No new upstream commits; skipping release."; fi
+          if [ "$n" -gt 0 ] || [ "${{ inputs.force_release }}" = "true" ] || [ "$existing" -eq 0 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            if [ "$existing" -eq 0 ]; then echo "No release exists yet: publishing first release."; fi
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No new upstream commits; skipping release."
+          fi
 
       - name: Push merged branch
         if: steps.decide.outputs.publish == 'true'
