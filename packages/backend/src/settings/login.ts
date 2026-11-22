@@ -71,12 +71,16 @@ export class LoginService {
 					: undefined;
 			if (!method) throw new Error(`${provider.name || providerId} 不支持登录`);
 
-			await runtime.login(providerId, method, {
-				signal: login.abort.signal,
-				notify: (event) => this.notify(login, event),
-				prompt: (prompt) => this.prompt(login, prompt),
-				...(this.deps.getDeviceId ? { getDeviceId: this.deps.getDeviceId } : {}),
-			});
+			await runtime.login(
+				providerId,
+				method,
+				{
+					signal: login.abort.signal,
+					notify: (event) => this.notify(login, event),
+					prompt: (prompt) => this.prompt(login, prompt),
+				},
+				this.deps.getDeviceId ? { getDeviceId: this.deps.getDeviceId } : undefined,
+			);
 			return { ok: true };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
