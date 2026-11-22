@@ -1,5 +1,6 @@
 import { CHANNEL_TABLE, type InvokeApi, IpcChannels, type PiApi } from "@tcode/shared";
 import { randomUid } from "./lib/uid";
+import { openRemoteFolderPicker } from "./lib/remote-folder-picker";
 
 declare global {
 	interface Window {
@@ -274,27 +275,10 @@ function createRemotePi(): PiApi {
 			return "";
 		},
 		...invokeApi,
-		// Headless build only (VITE_TCODE_HEADLESS=1): a browser cannot open a native folder dialog on the
-		// server machine, so ask for the path as text instead. Desktop/Electron web mode is unchanged.
+		// Headless browsers use an authenticated remote Windows folder browser.
+		// Native desktop/Electron folder picking remains unchanged.
 		...(import.meta.env.VITE_TCODE_HEADLESS
-			? {
-					pickDirectory: async () => {
-						let last = "";
-						try {
-							last = localStorage.getItem("tcode.lastProjectDir") ?? "";
-						} catch {}
-						const input = window.prompt(
-							"請輸入專案資料夾的完整路徑（執行 TCode 的那台電腦上的路徑）\nProject folder path on the machine running TCode:",
-							last,
-						);
-						const value = input?.trim().replace(/^"(.*)"$/, "$1");
-						if (!value) return null;
-						try {
-							localStorage.setItem("tcode.lastProjectDir", value);
-						} catch {}
-						return value;
-					},
-				}
+			? { pickDirectory: openRemoteFolderPicker }
 			: {}),
 		onProviderLoginEvent: subscribe(IpcChannels.SettingsLoginEvent),
 		onUiPluginsEvent: subscribe(IpcChannels.UiPluginsEvent),

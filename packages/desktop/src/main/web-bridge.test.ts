@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("electron", () => ({ ipcMain: { handle: vi.fn() } }));
+vi.mock("electron", () => ({
+	ipcMain: { handle: vi.fn() },
+	app: { getPath: () => tmpdir(), getAppPath: () => tmpdir() },
+}));
 
 import { WebSocket } from "ws";
 import { invokeRegistry } from "./ipc/invoke";
@@ -166,6 +169,28 @@ describe("web 桥口令闸门", () => {
 
 		const pair = await fetch(`${base}/?token=${next?.token}`, { redirect: "manual" });
 		expect(pair.status).toBe(302);
+	});
+
+	it("remote folder browser is authenticated and only returns folders", async () => {
+		await startListening();
+		const projects = join(root, "projects");
+		mkdirSync(projects);
+		mkdirSync(join(projects, "test-project"));
+		writeFileSync(join(projects, "private.txt"), "do not list");
+		const route = `${base}/api/project-folders?path=${encodeURIComponent(projects)}`;
+		expect((await fetch(route)).status).toBe(403);
+		const token = service?.status().token ?? "";
+		const pair = await fetch(`${base}/?token=${token}`, { redirect: "manual" });
+		const jar = (pair.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+		const res = await fetch(route, { headers: { cookie: jar } });
+		expect(res.status).toBe(200);
+		expect(res.headers.get("cache-control")).toBe("no-store");
+		const data = await res.json() as { current: string; folders: Array<{ name: string }> };
+		expect(data.current).toBeTruthy();
+		expect(data.folders.map((f) => f.name)).toContain("test-project");
+		expect(data.folders.map((f) => f.name)).not.toContain("private.txt");
+		const missing = await fetch(`${base}/api/project-folders?path=${encodeURIComponent(join(projects, "missing"))}`, { headers: { cookie: jar } });
+		expect(missing.status).toBe(400);
 	});
 
 	it("配置迁移：旧文件无 token → 补齐写回且跨重启稳定；损坏文件不覆写", async () => {

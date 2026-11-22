@@ -13,6 +13,7 @@ import {
 import { app } from "electron";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { invokeRegistry } from "./ipc/invoke";
+import { browseProjectFolders } from "./project-folders";
 
 const WS_PATH = "/api/ws";
 
@@ -531,6 +532,20 @@ export class WebBridgeService {
 				}
 				res.writeHead(403, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
 				res.end(AUTH_DENIED_TEXT);
+				return;
+			}
+			if (url.pathname === "/api/project-folders") {
+				const headers = {
+					"content-type": "application/json; charset=utf-8",
+					"cache-control": "no-store",
+					"x-content-type-options": "nosniff",
+				};
+				try {
+					const data = browseProjectFolders(url.searchParams.get("path") ?? undefined);
+					res.writeHead(200, headers).end(JSON.stringify(data));
+				} catch {
+					res.writeHead(400, headers).end(JSON.stringify({ error: "無法開啟資料夾。請確認路徑存在及具備存取權限。" }));
+				}
 				return;
 			}
 			if (!hasBuild) {
