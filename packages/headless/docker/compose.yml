@@ -1,0 +1,55 @@
+# Hardened deployment: the app is NOT published on the host; only the cloudflared container
+# (same private network) can reach it. Put Cloudflare Access in front of the tunnel hostname.
+#
+#   cp .env.example .env   # fill in TCODE_TOKEN, TUNNEL_TOKEN, hostname, uid/gid
+#   docker compose up -d --build
+services:
+  tcode:
+    build:
+      context: ../../..
+      dockerfile: packages/headless/docker/Dockerfile
+    image: tcode-headless:local
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TCODE_TOKEN: ${TCODE_TOKEN:?set a >=16 char token in .env}
+      TCODE_BRIDGE_HOSTS: ${TCODE_PUBLIC_HOST:?e.g. pi2.kovami.app}
+      TCODE_PORT: "1200"
+    expose:
+      - "1200"                    # container-network only, no `ports:`
+    volumes:
+      - ${DATA_ROOT:-./data}/home:/data/home          # ~/.pi/agent (auth, sessions, settings, skills)
+      - ${DATA_ROOT:-./data}/tcode:/data/tcode        # TCode userData (web-access.json, logs, ui state)
+      - ${WORKSPACES:-./workspaces}:/workspace        # projects the agent may touch (keep this narrow!)
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    networks: [tcode]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:1200/api/auth-check?token='+process.env.TCODE_TOKEN).then(r=>process.exit(r.status===204?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set the tunnel token in .env}
+    depends_on: [tcode]
+    networks: [tcode]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  tcode: {}
+# In the Cloudflare Zero Trust dashboard: Public hostname  <TCODE_PUBLIC_HOST>  ->  http://tcode:1200
+# and add an Access application (e.g. e-mail OTP / your IdP) for that hostname.

@@ -1,0 +1,7 @@
+# Hostnames that may appear as URLs in dist/server.mjs. release.sh fails when a NEW host shows up
+# (e.g. after an upstream merge), so a human reviews any new network destination before it ships.
+127.0.0.1
+raw.githubusercontent.com
+api.github.com
+pi.dev
+opencode.ai
