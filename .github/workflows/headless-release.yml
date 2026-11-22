@@ -109,8 +109,17 @@ jobs:
             4) why="tests or smoke test failed after merging upstream";;
             *) why="pipeline failed";;
           esac
+          {
+            echo "### Headless release failed"
+            echo "$why"
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(gh api "repos/$GH_REPO" --jq '.has_issues' 2>/dev/null || echo false)" != "true" ]; then
+            echo "::warning::Repository Issues are disabled; see the Actions job log and summary."
+            exit 0
+          fi
           gh label create headless-release-failed --color B60205 --description "automated release failed" 2>/dev/null || true
           if [ -z "$(gh issue list --label headless-release-failed --state open --json number --jq '.[0].number')" ]; then
             { echo "**$why**"; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; echo; echo '```'; tail -40 pipeline.log 2>/dev/null; echo '```'; } > issue.md
-            gh issue create --title "headless release failed: $why" --label headless-release-failed --body-file issue.md
+            gh issue create --title "headless release failed: $why" --label headless-release-failed --body-file issue.md || echo "::warning::Could not create issue; see Actions job summary."
           fi
