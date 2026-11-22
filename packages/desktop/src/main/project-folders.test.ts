@@ -20,6 +20,9 @@ describe("remote Windows project folder listing", () => {
     expect(view.folders.some((f) => f.name === "secret.txt")).toBe(false);
     expect(view.parent).toBeTruthy();
     expect(view.breadcrumbs.at(-1)?.name).toBe(view.current.split(/[\\/]/).at(-1));
+    // Quick links are provided by the host machine, never inferred from mobile paths.
+    expect(view.shortcuts.find(s => s.name === "Home")?.path).toBeTruthy();
+    expect(view.shortcuts.every(s => typeof s.path === "string" && s.path.length > 0)).toBe(true);
   });
 
   it("creates a new child folder and lists it", () => {

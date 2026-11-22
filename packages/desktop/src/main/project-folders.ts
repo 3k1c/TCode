@@ -7,6 +7,7 @@ export interface ProjectFolderListing {
   current: string;
   parent: string | null;
   roots: string[];
+  shortcuts: Array<{ name: string; path: string }>;
   breadcrumbs: Array<{ name: string; path: string }>;
   folders: Array<{ name: string; path: string }>;
   truncated: boolean;
@@ -66,10 +67,20 @@ export function browseProjectFolders(requestedPath?: string): ProjectFolderListi
   const roots = platform() === "win32"
     ? Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i) + ":\\").filter((p) => existsSync(p))
     : ["/"];
+  const home = homedir();
+  const shortcuts = [
+    { name: "Home", path: home },
+    { name: "桌面", path: join(home, "Desktop") },
+    { name: "文件", path: join(home, "Documents") },
+    { name: "專案", path: join(home, "Projects") },
+  ].filter((item) => {
+    try { return statSync(item.path).isDirectory(); } catch { return false; }
+  });
   return {
     current,
     parent: current === root ? null : dirname(current),
     roots,
+    shortcuts,
     breadcrumbs,
     folders: folders.slice(0, MAX_FOLDERS),
     truncated: folders.length > MAX_FOLDERS,

@@ -28,6 +28,13 @@ function removeSplash(): void {
 }
 
 export function initSplash(): void {
+	if (import.meta.env.VITE_TCODE_HEADLESS) {
+		finished = true;
+		document.documentElement.dataset.tcodeHeadless = "true";
+		document.documentElement.dataset.appReady = "true";
+		removeSplash();
+		return;
+	}
 	if (alreadyPlayed()) {
 		finished = true;
 

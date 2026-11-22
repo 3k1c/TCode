@@ -22,6 +22,7 @@ function buildDots(): string {
 	return html;
 }
 
+if (!import.meta.env.VITE_TCODE_HEADLESS) {
 const splash = document.createElement("div");
 splash.id = "splash";
 splash.setAttribute("aria-hidden", "true");
@@ -36,3 +37,4 @@ splash.innerHTML = `
 	<div class="sp-word">TCode</div>
 	<div class="sp-line"></div>`;
 document.body.append(splash);
+}

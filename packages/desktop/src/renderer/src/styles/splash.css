@@ -16,6 +16,11 @@
 #root {
 	content-visibility: hidden;
 }
+/* Browser/headless mode shows the actual app immediately with no splash delay. */
+html[data-tcode-headless] #root {
+	content-visibility: visible;
+	animation: none !important;
+}
 html[data-app-ready] #root {
 	content-visibility: visible;
 	animation: sp-root-in 1s cubic-bezier(0.25, 0.46, 0.45, 0.94) 1.35s both;
