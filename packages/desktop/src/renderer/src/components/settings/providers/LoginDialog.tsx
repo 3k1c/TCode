@@ -27,7 +27,7 @@ export function LoginDialog() {
 
 	return (
 		<div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/20" role="dialog" aria-modal>
-			<div className="w-[440px] rounded-xl border border-border bg-surface p-4 shadow-dialog">
+			<div className="max-h-[calc(100dvh-24px)] w-[440px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-dialog">
 				<h3 className="text-sm font-semibold text-ink">
 					{t(login.loginKind === "apiKey" ? "settings.login.apiKeyTitle" : "settings.login.title", {
 						name: login.providerName,
@@ -40,13 +40,10 @@ export function LoginDialog() {
 						<p className="mt-1 select-all text-center font-mono text-lg font-semibold tracking-widest text-ink">
 							{deviceCode.userCode}
 						</p>
-						<button
-							type="button"
+						<ExternalLoginLink
+							url={deviceCode.verificationUri}
 							className="mt-1 block w-full truncate text-center text-[11px] text-ink-dim underline underline-offset-2 hover:text-ink"
-							onClick={() => void getPi().openExternal({ url: deviceCode.verificationUri })}
-						>
-							{deviceCode.verificationUri}
-						</button>
+						/>
 						{deviceCode.expiresInSeconds ? (
 							<p className="mt-1 text-center text-[10px] text-ink-faint">
 								{t("settings.login.deviceCodeExpires", {
@@ -60,16 +57,17 @@ export function LoginDialog() {
 				{authUrl && (
 					<div className="mt-3 rounded-lg bg-hover px-3 py-2.5">
 						<p className="text-[11px] text-ink-2">{t("settings.login.browserHint")}</p>
-						<button
-							type="button"
+						<ExternalLoginLink
+							url={authUrl.url}
 							className="mt-1 block w-full truncate text-left font-mono text-[11px] text-ink-dim underline underline-offset-2 hover:text-ink"
-							title={authUrl.url}
-							onClick={() => void getPi().openExternal({ url: authUrl.url })}
-						>
-							{authUrl.url}
-						</button>
+						/>
 						{authUrl.instructions && (
 							<p className="mt-1 text-[10px] text-ink-faint">{authUrl.instructions}</p>
+						)}
+						{import.meta.env.VITE_TCODE_HEADLESS && login.providerId === "openai" && (
+							<p className="mt-2 text-[11px] text-ink-dim">
+								如授權後跳至無法開啟的 localhost 頁面，請複製完整回呼網址，貼入此處出現的授權輸入框。
+							</p>
 						)}
 					</div>
 				)}
@@ -145,6 +143,29 @@ export function LoginDialog() {
 				</div>
 			</div>
 		</div>
+	);
+}
+
+
+/** Browser tabs open the OAuth URL on the user's own device, not on the headless host. */
+function ExternalLoginLink({ url, className }: { url: string; className: string }) {
+	const safeUrl = /^https?:\/\//i.test(url) ? url : undefined;
+	if (import.meta.env.VITE_TCODE_HEADLESS) {
+		return (
+			<a href={safeUrl} target="_blank" rel="noopener noreferrer" className={className} title={url}>
+				{url}
+			</a>
+		);
+	}
+	return (
+		<button
+			type="button"
+			className={className}
+			title={url}
+			onClick={() => { if (safeUrl) void getPi().openExternal({ url: safeUrl }); }}
+		>
+			{url}
+		</button>
 	);
 }
 
