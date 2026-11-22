@@ -1,0 +1,105 @@
+# Weekly (and on demand): merge upstream TCode into the headless branch, build, test, scan, smoke-test,
+# and publish a GitHub Release containing the Windows bundle. Nothing is published unless EVERY step passes.
+#
+# Setup in your fork:  Settings -> Actions -> enable workflows;  this file must exist on the fork's DEFAULT branch
+# (scheduled workflows only run from there).  Optional secret PUSH_TOKEN (PAT with `contents` + `workflow` scope)
+# is only needed if upstream ever changes files under .github/workflows.
+name: headless-release
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      merge_upstream:
+        description: "Merge upstream before building"
+        type: boolean
+        default: true
+      force_release:
+        description: "Publish even if upstream has no new commits"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: headless-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/liassy-ai/TCode.git
+  UPSTREAM_BRANCH: main
+  HEADLESS_BRANCH: headless-nas
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEADLESS_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.PUSH_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run release pipeline
+        id: pipeline
+        env:
+          UPSTREAM_REMOTE: upstream
+          GIT_AUTHOR_NAME: headless-release[bot]
+          GIT_AUTHOR_EMAIL: headless-release@users.noreply.github.com
+          GIT_COMMITTER_NAME: headless-release[bot]
+          GIT_COMMITTER_EMAIL: headless-release@users.noreply.github.com
+          MERGE: ${{ github.event_name == 'schedule' || inputs.merge_upstream }}
+        run: |
+          if [ "$MERGE" = "true" ]; then STEPS=merge,install,build,test,scan,smoke,package; else STEPS=install,build,test,scan,smoke,package; fi
+          export STEPS
+          set +e
+          packages/headless/scripts/release.sh 2>&1 | tee pipeline.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: Decide whether to publish
+        id: decide
+        run: |
+          n=$(node -p "require('./release/latest.json').upstreamCommits")
+          v=$(node -p "require('./release/latest.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "$n" -gt 0 ] || [ "${{ inputs.force_release }}" = "true" ]; then echo "publish=true" >> "$GITHUB_OUTPUT"; else echo "publish=false" >> "$GITHUB_OUTPUT"; echo "No new upstream commits; skipping release."; fi
+
+      - name: Push merged branch
+        if: steps.decide.outputs.publish == 'true'
+        run: git push origin "HEAD:${HEADLESS_BRANCH}"
+
+      - name: Publish release
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.decide.outputs.version }}" release/tcode-headless-win.zip release/tcode-headless-win.zip.sha256 release/latest.json \
+            --title "TCode headless ${{ steps.decide.outputs.version }}" --notes-file release/notes.md --target "$(git rev-parse HEAD)" --latest
+
+      - name: Open an issue when the pipeline fails
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ steps.pipeline.outputs.rc }}
+        run: |
+          case "$RC" in
+            2) why="merge conflict with upstream (resolve by hand on $HEADLESS_BRANCH)";;
+            3) why="safety scan failed (new network host or forbidden code in the bundle: review before shipping)";;
+            4) why="tests or smoke test failed after merging upstream";;
+            *) why="pipeline failed";;
+          esac
+          gh label create headless-release-failed --color B60205 --description "automated release failed" 2>/dev/null || true
+          if [ -z "$(gh issue list --label headless-release-failed --state open --json number --jq '.[0].number')" ]; then
+            { echo "**$why**"; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; echo; echo '```'; tail -40 pipeline.log 2>/dev/null; echo '```'; } > issue.md
+            gh issue create --title "headless release failed: $why" --label headless-release-failed --body-file issue.md
+          fi
