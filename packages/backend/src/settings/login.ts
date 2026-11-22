@@ -19,6 +19,8 @@ interface ActiveLogin {
 
 export interface LoginServiceDeps {
 	getRuntime: () => Promise<ModelRuntime>;
+	/** Pi SettingsManager supplies the stable installation UUID for ChatGPT OAuth. */
+	getDeviceId?: () => string;
 
 	send: (payload: LoginEventPayload) => void;
 }
@@ -73,6 +75,7 @@ export class LoginService {
 				signal: login.abort.signal,
 				notify: (event) => this.notify(login, event),
 				prompt: (prompt) => this.prompt(login, prompt),
+				...(this.deps.getDeviceId ? { getDeviceId: this.deps.getDeviceId } : {}),
 			});
 			return { ok: true };
 		} catch (error) {
