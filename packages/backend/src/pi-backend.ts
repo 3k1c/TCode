@@ -19,7 +19,7 @@ import {
 	type SessionEntry,
 	type SessionInfo,
 	SessionManager,
-	type SettingsManager,
+	SettingsManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type {
@@ -423,6 +423,9 @@ export class PiBackend {
 
 	readonly login = new LoginService({
 		getRuntime: () => this.getModelRuntime(),
+		// Use Pi's global settings as the single source of the installation UUID.
+		// OpenAI ChatGPT OAuth requires a valid stable UUID (not TCode's legacy device ID).
+		getDeviceId: () => SettingsManager.create(process.cwd(), getAgentDir()).getOrCreateDeviceId(),
 		send: (payload) => this.loginEmitter.emit(payload),
 	});
 
