@@ -1,13 +1,14 @@
-import type { SessionEvent, TrustRequest } from "@tcode/shared";
+import { messagesToUIMessages, type SessionEvent, type TrustRequest } from "@tcode/shared";
 import { useEffect } from "react";
 import { getPi } from "../api";
 import { useDraftStore } from "../stores/drafts";
 import { EventConflator } from "../stores/event-conflator";
 import { useProjectsStore } from "../stores/projects";
-import { retrySessionHistory } from "../stores/session-history";
+import { finishSessionHistory, retrySessionHistory } from "../stores/session-history";
 import { useSessionsStore } from "../stores/sessions";
 import { pushExtensionToast } from "../stores/toasts";
 import { useTranscriptStore } from "../stores/transcript";
+import { runtimeReconcileAction } from "./runtime-reconcile";
 
 export function useSessionEventBridge({
 	onTrustRequest,
@@ -16,6 +17,46 @@ export function useSessionEventBridge({
 }): void {
 	useEffect(() => {
 		const pi = getPi();
+		const recovering = new Set<string>();
+		const reconcile = () => {
+			const sessionId = useSessionsStore.getState().activeSessionId;
+			if (!sessionId || recovering.has(sessionId)) return;
+			const local = useTranscriptStore.getState().bySession[sessionId];
+			if (!local) return;
+			recovering.add(sessionId);
+			void (async () => {
+				try {
+					const runtime = await pi.getActiveSessionRuntime();
+					const action = runtimeReconcileAction(sessionId, local, runtime);
+					if (action === "none") return;
+					const before = useTranscriptStore.getState().bySession[sessionId];
+					if (before !== local || useSessionsStore.getState().activeSessionId !== sessionId) return;
+					if (action === "restore-active") {
+						const latest = await pi.getActiveSessionRuntime();
+						if (useTranscriptStore.getState().bySession[sessionId] === before &&
+							useSessionsStore.getState().activeSessionId === sessionId &&
+							runtimeReconcileAction(sessionId, before, latest) === "restore-active") {
+							useTranscriptStore.getState().markAgentActive(sessionId, true);
+						}
+						return;
+					}
+					const history = await pi.getSessionMessages({ sessionId });
+					const after = useTranscriptStore.getState().bySession[sessionId];
+					if (before !== after || useSessionsStore.getState().activeSessionId !== sessionId) return;
+					const latest = await pi.getActiveSessionRuntime();
+					if (runtimeReconcileAction(sessionId, after, latest) !== "reload-idle") return;
+					if (useTranscriptStore.getState().bySession[sessionId] !== after) return;
+					useTranscriptStore.getState().loadHistory(sessionId, messagesToUIMessages(history));
+					finishSessionHistory(sessionId);
+				} catch (error) {
+					console.warn("Failed to reconcile session runtime", error);
+				} finally {
+					recovering.delete(sessionId);
+				}
+			})();
+		};
+		const runtimeTimer = setInterval(reconcile, 4_000);
+		void Promise.resolve().then(reconcile);
 		const conflator = new EventConflator({
 			apply: (sessionId, event) => {
 				useTranscriptStore.getState().applyEvent(sessionId, event, {
@@ -61,6 +102,7 @@ export function useSessionEventBridge({
 			void useProjectsStore.getState().openSession(meta);
 		});
 		return () => {
+			clearInterval(runtimeTimer);
 			offEvent();
 			conflator.dispose();
 			offPermission();

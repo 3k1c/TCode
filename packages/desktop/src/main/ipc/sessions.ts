@@ -6,6 +6,7 @@ export function registerSessionsIpc(backend: PiBackend): void {
 	registerInvokeHandlers(SESSION_CHANNELS, {
 		createSession: ({ options }) => backend.createSession(options),
 		listAllSessions: () => backend.listAllSessions(),
+		getActiveSessionRuntime: () => backend.listActiveSessionRuntime(),
 		openSession: ({ filePath }) => backend.openSession(filePath),
 		closeSession: ({ sessionId, intent }) => backend.closeSession(sessionId, intent),
 		getChannelSubscriptionSessionIds: () => backend.getChannelSubscriptionSessionIds(),
