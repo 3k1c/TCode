@@ -36,6 +36,20 @@ export function usePaneArbitration() {
 		const justOpenedDock = dockOpenInFlow && !prev.current.dockOpen;
 		const justOpenedSidebar = !sidebarHidden && prev.current.sidebarHidden;
 		prev.current = { sidebarHidden, dockOpen };
+		// The empty-state composer has no measured chat floor yet. Keep the
+		// narrow-screen sidebar out of normal flow even before a session opens.
+		if (viewportWidth <= 640) {
+			if (!sidebarHidden && !sidebarFloating) {
+				useUiPreferencesStore.getState().setAutoCollapsed(true);
+			}
+			// On phones the drawer always floats: do not uncollapse it when
+			// the initial empty-state floor briefly reports a small width.
+			return;
+		}
+		if (viewportWidth > 640 && !floorPx && autoCollapsed) {
+			useUiPreferencesStore.getState().setAutoCollapsed(false);
+			return;
+		}
 		if (!floorPx) return;
 
 		const dockPx = dockOpenInFlow ? dockWidth : 0;

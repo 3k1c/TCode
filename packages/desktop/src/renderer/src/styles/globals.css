@@ -1291,6 +1291,16 @@ code {
 	--color-sidebar: transparent;
 }
 
+/* Phone sidebars are drawers, never an in-flow 240px column. */
+@media (max-width: 640px) {
+	.sidebar:not(.is-floating) {
+		width: 0 !important;
+		min-width: 0;
+		visibility: hidden;
+		transition: none;
+	}
+}
+
 .sidebar.is-collapsed {
 	width: 0;
 

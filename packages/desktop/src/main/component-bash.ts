@@ -35,6 +35,12 @@ const operations: BashOperations = {
 					: undefined,
 			});
 
+			if (result.outputIncomplete && onData) {
+				onData(Buffer.from("\n[TCode] 直接程序已結束；繼承的輸出管道超過排空時間，尾段輸出可能不完整。\n", "utf8"));
+			}
+			if (result.backgroundProcesses?.length && onData) {
+				onData(Buffer.from("\n[TCode] 背景程序仍在執行：PID " + result.backgroundProcesses.join(", ") + "（正常退出時不會自動終止）。\n", "utf8"));
+			}
 			if (result.timedOut) {
 				throw new Error(`timeout:${options.timeout}`);
 			}

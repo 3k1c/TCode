@@ -73,7 +73,7 @@ export const SESSION_CHANNELS = {
 	listAllSessions: ch("session:listAll")<void, SessionMeta[]>(),
 	getActiveSessionRuntime: ch("session:activeRuntime")<
 		void,
-		{ sessionId: string; streaming: boolean; compacting: boolean }[]
+		{ sessionId: string; streaming: boolean; compacting: boolean; stopping?: boolean }[]
 	>(),
 	openSession: ch("session:open")<{ filePath: string }, SessionMeta>(),
 
@@ -499,6 +499,7 @@ const EVENT_CHANNELS = {
 	Event: "pi:event",
 
 	SessionsChanged: "pi:sessions-changed",
+	RuntimeSnapshot: "session:runtimeSnapshot",
 
 	UiStateChanged: "uiState:changed",
 	PermissionRequest: "pi:permission-request",

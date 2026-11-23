@@ -131,6 +131,8 @@ export interface ComponentShellResult {
 	canceled: boolean;
 	timedOut: boolean;
 	truncated: boolean;
+	outputIncomplete?: boolean;
+	backgroundProcesses?: number[];
 	callId?: number;
 }
 
@@ -171,6 +173,8 @@ export async function runComponentShell(opts: ComponentShellOptions): Promise<Co
 		canceled: payload.canceled === true,
 		timedOut: payload.timedOut === true,
 		truncated: payload.truncated === true,
+		outputIncomplete: payload.outputIncomplete === true,
+		backgroundProcesses: Array.isArray(payload.backgroundProcesses) ? payload.backgroundProcesses.filter((p): p is number => typeof p === "number") : [],
 		callId: call.id,
 	};
 }

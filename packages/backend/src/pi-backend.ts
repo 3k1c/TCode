@@ -1,3 +1,4 @@
+import { awaitAbortOrTimeout } from "./session/abort-control";
 import { existsSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -237,6 +238,8 @@ const DEFAULT_POLISH_PROMPT =
 
 export class PiBackend {
 	private readonly registry = new SessionRegistry();
+	/** Pi remains the source of truth. This map only tracks outstanding abort requests. */
+	private readonly stopping = new Map<string, Promise<void>>();
 
 	private readonly openFlights = new KeyedSingleFlight<SessionMeta>();
 
@@ -1168,8 +1171,17 @@ export class PiBackend {
 	async abort(sessionId: string): Promise<void> {
 		const entry = this.registry.get(sessionId);
 		if (!entry) return;
-		log.info("abort", sessionId);
-		await entry.session.abort();
+		log.info("abort requested", sessionId);
+		let running = this.stopping.get(sessionId);
+		if (!running) {
+			// Never replace a running Pi Session to fake successful cancellation.
+			const task = Promise.resolve().then(() => entry.session.abort());
+			running = task.finally(() => {
+				if (this.stopping.get(sessionId) === running) this.stopping.delete(sessionId);
+			});
+			this.stopping.set(sessionId, running);
+		}
+		await awaitAbortOrTimeout(() => running, 15_000);
 	}
 
 	checkSessionWritable(sessionId: string): "ok" | "not_found" | "read_only" {
@@ -1257,11 +1269,12 @@ export class PiBackend {
 		return this.eventRates.snapshot();
 	}
 
-	listActiveSessionRuntime(): { sessionId: string; streaming: boolean; compacting: boolean }[] {
+	listActiveSessionRuntime(): { sessionId: string; streaming: boolean; compacting: boolean; stopping: boolean }[] {
 		return this.registry.list().map(({ session }) => ({
 			sessionId: session.sessionId,
 			streaming: session.isStreaming,
 			compacting: session.isCompacting,
+			stopping: this.stopping.has(session.sessionId),
 		}));
 	}
 

@@ -75,6 +75,9 @@ export interface PiApi extends InvokeApi<typeof CHANNEL_TABLE> {
 
 	onEvent(cb: (payload: SessionEventEnvelope) => void): () => void;
 
+	/** Headless websocket reconnection snapshot; native desktop does not need this event. */
+	onRuntimeSnapshot?(cb: (sessions: { sessionId: string; streaming: boolean; compacting: boolean; stopping?: boolean }[]) => void): () => void;
+
 	onSessionsChanged(cb: () => void): () => void;
 
 	onNotificationOpen(cb: (payload: NotificationOpenPayload) => void): () => void;

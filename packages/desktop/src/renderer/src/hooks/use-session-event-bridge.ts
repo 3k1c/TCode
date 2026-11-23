@@ -18,7 +18,7 @@ export function useSessionEventBridge({
 	useEffect(() => {
 		const pi = getPi();
 		const recovering = new Set<string>();
-		const reconcile = () => {
+		const reconcile = (snapshot?: { sessionId: string; streaming: boolean; compacting: boolean; stopping?: boolean }[]) => {
 			const sessionId = useSessionsStore.getState().activeSessionId;
 			if (!sessionId || recovering.has(sessionId)) return;
 			const local = useTranscriptStore.getState().bySession[sessionId];
@@ -26,7 +26,7 @@ export function useSessionEventBridge({
 			recovering.add(sessionId);
 			void (async () => {
 				try {
-					const runtime = await pi.getActiveSessionRuntime();
+					const runtime = snapshot ?? await pi.getActiveSessionRuntime();
 					const action = runtimeReconcileAction(sessionId, local, runtime);
 					if (action === "none") return;
 					const before = useTranscriptStore.getState().bySession[sessionId];
@@ -55,8 +55,15 @@ export function useSessionEventBridge({
 				}
 			})();
 		};
-		const runtimeTimer = setInterval(reconcile, 4_000);
-		void Promise.resolve().then(reconcile);
+		// The server pushes a full snapshot on every WebSocket reconnection.
+		// Recheck when the active Session changes or the phone becomes visible.
+		const offSnapshot = pi.onRuntimeSnapshot?.((snapshot) => reconcile(snapshot));
+		const offSessionSwitch = useSessionsStore.subscribe((state, previous) => {
+			if (state.activeSessionId !== previous.activeSessionId) reconcile();
+		});
+		const onVisible = () => { if (document.visibilityState === "visible") reconcile(); };
+		document.addEventListener("visibilitychange", onVisible);
+		void Promise.resolve().then(() => reconcile());
 		const conflator = new EventConflator({
 			apply: (sessionId, event) => {
 				useTranscriptStore.getState().applyEvent(sessionId, event, {
@@ -102,7 +109,9 @@ export function useSessionEventBridge({
 			void useProjectsStore.getState().openSession(meta);
 		});
 		return () => {
-			clearInterval(runtimeTimer);
+			offSnapshot?.();
+			offSessionSwitch();
+			document.removeEventListener("visibilitychange", onVisible);
 			offEvent();
 			conflator.dispose();
 			offPermission();

@@ -15,6 +15,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { WindowsProcessTree } from "./windows-process-tree";
 
 type Payload = Record<string, unknown>;
 type StreamCb = (data: string, stream: "out" | "err") => void;
@@ -60,6 +61,9 @@ export interface LocalRunnerOptions {
 	maxPtys?: number;
 	/** Grace period between SIGTERM and SIGKILL. Default 3000 ms. */
 	killGraceMs?: number;
+	maxShellRunMs?: number;
+	idleWarningMs?: number;
+	stdioDrainMs?: number;
 	/** Injected for tests; defaults to dynamic import("node-pty"). */
 	ptyFactory?: (opts: {
 		shell: string;
@@ -163,6 +167,9 @@ interface ShellCall {
 	canceled: boolean;
 	timedOut: boolean;
 	killTimer?: NodeJS.Timeout;
+	forceFinish?: () => void;
+	cleanup?: Promise<void>;
+	tracker?: WindowsProcessTree;
 }
 
 export class LocalRunner {
@@ -182,6 +189,9 @@ export class LocalRunner {
 			maxGitOutputBytes: options.maxGitOutputBytes ?? 64 * 1024 * 1024,
 			maxPtys: options.maxPtys ?? 16,
 			killGraceMs: options.killGraceMs ?? 3000,
+			maxShellRunMs: options.maxShellRunMs ?? 60 * 60_000,
+			idleWarningMs: options.idleWarningMs ?? 45_000,
+			stdioDrainMs: options.stdioDrainMs ?? 1500,
 			ptyFactory: options.ptyFactory ?? defaultPtyFactory,
 		};
 	}
@@ -216,10 +226,9 @@ export class LocalRunner {
 	private runGit(req: RunnerRequest): Promise<Payload> {
 		const args = [...(req.args ?? [])];
 		const pre: string[] = [];
-		if (req.gitDir) pre.push(`--git-dir=${req.gitDir}`);
-		if (req.workTree) pre.push(`--work-tree=${req.workTree}`);
+		if (req.gitDir) pre.push("--git-dir=" + req.gitDir);
+		if (req.workTree) pre.push("--work-tree=" + req.workTree);
 		const env = { ...process.env, ...DEFAULT_GIT_ENV, ...(req.env ?? {}) } as NodeJS.ProcessEnv;
-
 		return new Promise<Payload>((resolve) => {
 			let child: ChildProcess;
 			try {
@@ -229,61 +238,88 @@ export class LocalRunner {
 					stdio: ["ignore", "pipe", "pipe"],
 					...spawnFlags(),
 				});
-			} catch (e) {
-				resolve({ ok: false, code: 127, stdout: "", stderr: (e as Error).message });
+			} catch (error) {
+				resolve({ ok: false, code: 127, stdout: "", stderr: (error as Error).message });
 				return;
 			}
+			const tracker = child.pid && process.platform === "win32" ? new WindowsProcessTree(child.pid) : undefined;
 			const out: Buffer[] = [];
 			const err: Buffer[] = [];
 			let outBytes = 0;
+			let errBytes = 0;
 			let truncated = false;
 			let timedOut = false;
 			let settled = false;
-			const done = (p: Payload) => {
+			let exitSeen = false;
+			let exitCode: number | null = null;
+			let drainTimer: NodeJS.Timeout | undefined;
+			let forceTimer: NodeJS.Timeout | undefined;
+			const finish = (code: number | null, outputIncomplete = false) => {
 				if (settled) return;
 				settled = true;
-				if (timer) clearTimeout(timer);
-				resolve(p);
-			};
-			const timer =
-				req.timeoutMs && req.timeoutMs > 0
-					? setTimeout(() => {
-							timedOut = true;
-							killTree(child, "SIGKILL");
-						}, req.timeoutMs)
-					: undefined;
-			child.stdout?.on("data", (b: Buffer) => {
-				if (outBytes + b.length > this.opts.maxGitOutputBytes) {
-					truncated = true;
-					const room = this.opts.maxGitOutputBytes - outBytes;
-					if (room > 0) out.push(b.subarray(0, room));
-					outBytes = this.opts.maxGitOutputBytes;
-					return;
-				}
-				outBytes += b.length;
-				out.push(b);
-			});
-			child.stderr?.on("data", (b: Buffer) => {
-				if (err.reduce((n, x) => n + x.length, 0) < 1024 * 1024) err.push(b);
-			});
-			child.on("error", (e: NodeJS.ErrnoException) => {
-				done({
-					ok: false,
-					code: e.code === "ENOENT" ? 127 : 1,
-					stdout: "",
-					stderr: e.code === "ENOENT" ? "git: command not found" : e.message,
-				});
-			});
-			child.on("close", (code) => {
-				const exit = timedOut ? 124 : (code ?? 1);
-				done({
-					ok: exit === 0,
-					code: exit,
+				clearTimeout(timer);
+				if (drainTimer) clearTimeout(drainTimer);
+				if (forceTimer) clearTimeout(forceTimer);
+				tracker?.stopMonitoring();
+				child.stdout?.destroy();
+				child.stderr?.destroy();
+				const resultCode = timedOut ? 124 : code ?? 1;
+				resolve({
+					ok: resultCode === 0,
+					code: resultCode,
 					timedOut,
-					truncated,
+					truncated: truncated || outputIncomplete,
+					outputIncomplete,
 					stdout: Buffer.concat(out).toString("utf8"),
 					stderr: Buffer.concat(err).toString("utf8"),
 				});
+			};
+			const timeoutMs = req.timeoutMs && req.timeoutMs > 0 ? req.timeoutMs : 10 * 60_000;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				killTree(child, "SIGKILL");
+				void tracker?.terminate();
+				forceTimer = setTimeout(() => finish(null, true), this.opts.killGraceMs + 3000);
+				forceTimer.unref?.();
+			}, timeoutMs);
+			timer.unref?.();
+			child.stdout?.on("data", (chunk: Buffer) => {
+				if (outBytes + chunk.length > this.opts.maxGitOutputBytes) {
+					truncated = true;
+					const room = this.opts.maxGitOutputBytes - outBytes;
+					if (room > 0) out.push(chunk.subarray(0, room));
+					outBytes = this.opts.maxGitOutputBytes;
+					return;
+				}
+				outBytes += chunk.length;
+				out.push(chunk);
+			});
+			child.stderr?.on("data", (chunk: Buffer) => {
+				const room = Math.max(0, 1024 * 1024 - errBytes);
+				if (room > 0) { err.push(chunk.subarray(0, room)); errBytes += Math.min(room, chunk.length); }
+			});
+			child.on("error", (error: NodeJS.ErrnoException) => {
+				if (settled) return;
+				tracker?.stopMonitoring();
+				clearTimeout(timer);
+				clearTimeout(forceTimer);
+				settled = true;
+				resolve({
+					ok: false,
+					code: error.code === "ENOENT" ? 127 : 1,
+					stdout: "",
+					stderr: error.code === "ENOENT" ? "git: command not found" : error.message,
+				});
+			});
+			child.on("exit", (code) => {
+				if (exitSeen || settled) return;
+				exitSeen = true;
+				exitCode = code;
+				drainTimer = setTimeout(() => finish(exitCode, true), this.opts.stdioDrainMs);
+			});
+			child.on("close", (code) => {
+				if (!exitSeen) { exitSeen = true; exitCode = code; }
+				finish(exitCode, false);
 			});
 		});
 	}
@@ -298,7 +334,10 @@ export class LocalRunner {
 			return Promise.resolve({ ok: false, code: 127, canceled: false, timedOut: false, truncated: false });
 		}
 		const env = { ...process.env, ...(req.env ?? {}) } as NodeJS.ProcessEnv;
-		const sh = shellArgs(shell, req.script ?? "");
+		const script = process.env.TCODE_SHELL_PIPEFAIL === "1" && /(?:^|[\\/])bash(?:\.exe)?$/i.test(shell)
+			? "set -o pipefail\n" + (req.script ?? "")
+			: req.script ?? "";
+		const sh = shellArgs(shell, script);
 		return new Promise<Payload>((resolve) => {
 			let child: ChildProcess;
 			try {
@@ -309,62 +348,128 @@ export class LocalRunner {
 					windowsVerbatimArguments: sh.verbatim,
 					...spawnFlags(),
 				});
-			} catch (e) {
-				resolve({ ok: false, code: 127, canceled: false, timedOut: false, truncated: false, stderr: (e as Error).message });
+			} catch (error) {
+				resolve({ ok: false, code: 127, canceled: false, timedOut: false, truncated: false, stderr: (error as Error).message });
 				return;
 			}
 			const call: ShellCall = { child, canceled: false, timedOut: false };
+			if (child.pid && process.platform === "win32") call.tracker = new WindowsProcessTree(child.pid);
 			this.shells.set(id, call);
 
+			let lastActualOutputAt = Date.now();
+			const startedAt = lastActualOutputAt;
 			const outDec = new StringDecoder("utf8");
 			const errDec = new StringDecoder("utf8");
-			child.stdout?.on("data", (b: Buffer) => {
-				const s = outDec.write(b);
-				if (s) onStream?.(s, "out");
+			child.stdout?.on("data", (chunk: Buffer) => {
+				lastActualOutputAt = Date.now();
+				const text = outDec.write(chunk);
+				if (text) onStream?.(text, "out");
 			});
-			child.stderr?.on("data", (b: Buffer) => {
-				const s = errDec.write(b);
-				if (s) onStream?.(s, "err");
+			child.stderr?.on("data", (chunk: Buffer) => {
+				lastActualOutputAt = Date.now();
+				const text = errDec.write(chunk);
+				if (text) onStream?.(text, "err");
 			});
-
-			const timer =
-				req.timeoutMs && req.timeoutMs > 0
-					? setTimeout(() => {
-							call.timedOut = true;
-							this.terminate(call);
-						}, req.timeoutMs)
-					: undefined;
 
 			let settled = false;
-			const finish = (code: number | null) => {
+			let hasExited = false;
+			let exitCode: number | null = null;
+			let drainTimer: NodeJS.Timeout | undefined;
+			let outputIncomplete = false;
+			const budget = req.timeoutMs && req.timeoutMs > 0 ? req.timeoutMs : this.opts.maxShellRunMs;
+			const runtimeTimer = setTimeout(() => {
+				if (settled) return;
+				call.timedOut = true;
+				this.terminate(call);
+			}, budget);
+			runtimeTimer.unref?.();
+
+			const heartbeat = setInterval(() => {
+				if (settled || !onStream) return;
+				const quiet = Date.now() - lastActualOutputAt;
+				if (quiet >= this.opts.idleWarningMs) {
+					const duration = Math.round((Date.now() - startedAt) / 1000);
+					onStream("[TCode] 程序仍在執行 " + duration + " 秒，" + Math.round(quiet / 1000) + " 秒沒有新輸出；仍在等待完成。\n", "err");
+				}
+			}, 30_000);
+			heartbeat.unref?.();
+
+			const finish = (code: number | null, reason: "exit" | "close" | "error" | "cancel" | "timeout") => {
 				if (settled) return;
 				settled = true;
-				if (timer) clearTimeout(timer);
+				clearTimeout(runtimeTimer);
+				clearInterval(heartbeat);
+				if (drainTimer) clearTimeout(drainTimer);
 				if (call.killTimer) clearTimeout(call.killTimer);
 				this.shells.delete(id);
 				const restOut = outDec.end();
 				const restErr = errDec.end();
 				if (restOut) onStream?.(restOut, "out");
 				if (restErr) onStream?.(restErr, "err");
-				resolve({
-					ok: code === 0 && !call.canceled && !call.timedOut,
-					code: code ?? (call.canceled || call.timedOut ? 130 : 1),
-					canceled: call.canceled,
-					timedOut: call.timedOut,
-					truncated: false,
+				const tracker = call.tracker;
+				const finishAfterCleanup = async () => {
+					if (call.cleanup) await Promise.race([call.cleanup, new Promise<void>((r) => setTimeout(r, 4000))]);
+					const backgroundProcesses = !call.canceled && !call.timedOut && tracker
+						? await Promise.race([tracker.survivingChildren(), new Promise<Awaited<ReturnType<typeof tracker.survivingChildren>>>((r) => setTimeout(() => r([]), 1800))])
+						: [];
+					tracker?.stopMonitoring();
+					const finalCode = call.timedOut ? 124 : call.canceled ? 130 : code ?? 1;
+					resolve({
+						ok: finalCode === 0,
+						code: finalCode,
+						canceled: call.canceled,
+						timedOut: call.timedOut,
+						truncated: outputIncomplete,
+						outputIncomplete,
+						finishReason: reason,
+						backgroundProcesses: backgroundProcesses.map((item) => item.pid),
+						wallTimeMs: Date.now() - startedAt,
+					});
+				};
+				void finishAfterCleanup().catch((error) => {
+					resolve({ ok: false, code: 1, canceled: call.canceled, timedOut: call.timedOut, truncated: true, error: String(error) });
 				});
 			};
-			child.on("error", (e) => {
-				onStream?.(`${e.message}\n`, "err");
-				finish(127);
+
+			call.forceFinish = () => {
+				if (settled) return;
+				outputIncomplete = true;
+				child.stdout?.destroy();
+				child.stderr?.destroy();
+				finish(null, call.timedOut ? "timeout" : "cancel");
+			};
+
+			const onExit = (code: number | null) => {
+				if (hasExited || settled) return;
+				hasExited = true;
+				exitCode = code;
+				drainTimer = setTimeout(() => {
+					if (settled) return;
+					outputIncomplete = true;
+					child.stdout?.destroy();
+					child.stderr?.destroy();
+					finish(exitCode, call.timedOut ? "timeout" : call.canceled ? "cancel" : "exit");
+				}, this.opts.stdioDrainMs);
+			};
+			child.on("exit", onExit);
+			child.on("close", (code) => {
+				if (!hasExited) { hasExited = true; exitCode = code; }
+				finish(exitCode, call.timedOut ? "timeout" : call.canceled ? "cancel" : "close");
 			});
-			child.on("close", (code) => finish(code));
+			child.on("error", (error) => {
+				onStream?.(error.message + "\n", "err");
+				finish(127, "error");
+			});
 		});
 	}
 
 	private terminate(call: ShellCall): void {
 		killTree(call.child, "SIGTERM");
-		call.killTimer = setTimeout(() => killTree(call.child, "SIGKILL"), this.opts.killGraceMs);
+		call.cleanup ??= call.tracker?.terminate();
+		call.killTimer = setTimeout(() => {
+			killTree(call.child, "SIGKILL");
+			call.forceFinish?.();
+		}, this.opts.killGraceMs + 3000);
 		call.killTimer.unref?.();
 	}
 
@@ -452,7 +557,7 @@ export class LocalRunner {
 		this.stopped = true;
 		for (const call of this.shells.values()) {
 			call.canceled = true;
-			killTree(call.child, "SIGKILL");
+			this.terminate(call);
 		}
 		this.shells.clear();
 		for (const { pty, handlers } of this.ptys.values()) {

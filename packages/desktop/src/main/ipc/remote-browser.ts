@@ -11,9 +11,7 @@ export function registerRemoteBrowserIpc(manager: RemoteBrowserManager): void {
 		remoteBrowserResize: ({ id, width, height, scale }) => {
 			manager.resize(id, width, height, scale);
 		},
-		remoteBrowserInput: ({ id, event }) => {
-			manager.input(id, event);
-		},
+		remoteBrowserInput: ({ id, event }) => manager.input(id, event),
 		remoteBrowserStatus: ({ id }) => manager.status(id),
 		remoteBrowserEvaluate: ({ id, code }) => manager.evaluate(id, code),
 		remoteBrowserSetActive: ({ id, active }) => {

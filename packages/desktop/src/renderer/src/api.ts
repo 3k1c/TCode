@@ -285,6 +285,7 @@ function createRemotePi(): PiApi {
 		onMcpServersChanged: subscribe(IpcChannels.McpServersChanged),
 		onQuitRequested: subscribe(IpcChannels.QuitRequested),
 		onEvent: subscribe(IpcChannels.Event),
+		onRuntimeSnapshot: subscribe(IpcChannels.RuntimeSnapshot),
 		onSessionsChanged: subscribe(IpcChannels.SessionsChanged),
 		onNotificationOpen: subscribe(IpcChannels.NotificationOpen),
 		onUiStateChanged: subscribe(IpcChannels.UiStateChanged),

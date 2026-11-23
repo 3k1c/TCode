@@ -1,5 +1,5 @@
 import type { InlineExtension, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
-import { DefaultResourceLoader, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, createToolSearchExtension, DefaultResourceLoader, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createLogger } from "../log";
 import type { PermissionConfirm, PermissionModeRef } from "../permissions/extension";
 import { resolveProjectTrust, type TrustOptionInternal } from "./trust";
@@ -55,7 +55,13 @@ export class ProjectResourceLoader {
 			cwd,
 			agentDir,
 			settingsManager,
-			extensionFactories: this.deps.buildExtensions(cwd, options?.confirm, options?.modeRef),
+			extensionFactories: [
+                // SDK embedding does not register CLI built-ins automatically.
+                // Keep these as genuine built-ins so Pi's settings control their activation.
+                { name: "codemode", factory: createCodemodeExtension(), builtin: true, replaceable: true },
+                { name: "tool-search", factory: createToolSearchExtension(), builtin: true, replaceable: true },
+                ...this.deps.buildExtensions(cwd, options?.confirm, options?.modeRef),
+            ],
 			...(this.deps.getDisabledSkills
 				? {
 						skillsOverride: (base) => {

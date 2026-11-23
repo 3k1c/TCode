@@ -207,7 +207,7 @@ export const useUiPreferencesStore = create<UiPreferencesStore>((set, get) => ({
 		const floorPx = useChatLayoutStore.getState().floorPx;
 		const sidePane = useSidePaneStore.getState();
 		const dockPx = isDockExpanded(sidePane) ? sidePane.widthPx : 0;
-		const floating = floorPx > 0 && window.innerWidth - get().sidebarWidth - dockPx < floorPx;
+		const floating = window.innerWidth <= 640 || (floorPx > 0 && window.innerWidth - get().sidebarWidth - dockPx < floorPx);
 
 		if (floating && sidePane.floating) useSidePaneStore.getState().collapse();
 		set({ sidebarCollapsed: false, autoCollapsed: false, sidebarFloating: floating });

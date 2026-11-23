@@ -26,6 +26,10 @@ let enabled = true;
 let lastKey = "";
 let lastAt = 0;
 let openHandler: ((payload: NotificationOpenPayload) => void) | undefined;
+let externalNotifier: ((input: TaskNotification) => void) | undefined;
+export function setExternalTaskNotifier(handler: (input: TaskNotification) => void): void {
+    externalNotifier = handler;
+}
 
 export function setTaskNotifyOpenHandler(handler: (payload: NotificationOpenPayload) => void): void {
 	openHandler = handler;
@@ -112,6 +116,10 @@ export function notifyTask(input: TaskNotification): void {
 	const title = `${input.sessionName} · ${label}`;
 	const body = input.detail?.trim() || label;
 
+    if (externalNotifier) {
+        externalNotifier(input);
+        return;
+    }
 	alertUser(title, body.slice(0, 200), () => {
 		revealWindow();
 		openHandler?.({ sessionId: input.sessionId });
