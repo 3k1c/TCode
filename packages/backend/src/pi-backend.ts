@@ -243,6 +243,7 @@ export class PiBackend {
 
 	private readonly openFlights = new KeyedSingleFlight<SessionMeta>();
 
+
 	private readonly channelSubscriptionIds = new Map<string, Set<string>>();
 
 	readonly modelPrefs = new ModelPrefsService(join(getAgentDir(), "model-prefs.json"));
@@ -1088,6 +1089,20 @@ export class PiBackend {
 		return new Set(this.registry.list().map((e) => e.session.sessionId));
 	}
 
+	// A browser tab can retain a session ID after the headless process restarts.
+	// Restore the same Pi session from disk rather than requiring a new conversation.
+	private async ensureRegisteredSession(sessionId: string): Promise<RegisteredSession> {
+		const active = this.registry.get(sessionId);
+		if (active) return active;
+		const stored = (await SessionManager.listAll()).find(
+			(info) => info.id === sessionId && info.cwd && info.path && existsSync(info.path),
+		);
+		if (!stored) throw new Error(`Session not found: ${sessionId}`);
+		log.info("restoring persisted session", sessionId);
+		await this.openSession(stored.path);
+		return this.requireSession(sessionId);
+	}
+
 	reportChannelSubscriptions(sessionId: string, topics: ReadonlySet<string>): void {
 		if (topics.size === 0) this.channelSubscriptionIds.delete(sessionId);
 		else this.channelSubscriptionIds.set(sessionId, new Set(topics));
@@ -1146,6 +1161,7 @@ export class PiBackend {
 		log.info("session deleted", sessionId);
 	}
 	async prompt(sessionId: string, text: string, images?: ImageInput[]): Promise<void> {
+		await this.ensureRegisteredSession(sessionId);
 		const entry = this.requireWritable(sessionId);
 		log.info("prompt", sessionId, { text: text.slice(0, 120), images: images?.length ?? 0 });
 
@@ -1199,8 +1215,7 @@ export class PiBackend {
 	}
 
 	async getFollowUpMessages(sessionId: string): Promise<string[]> {
-		const entry = this.registry.get(sessionId);
-		if (!entry) return [];
+		const entry = await this.ensureRegisteredSession(sessionId);
 		return [...entry.session.getFollowUpMessages()];
 	}
 
@@ -1446,7 +1461,7 @@ export class PiBackend {
 	}
 
 	async getSessionMessages(sessionId: string): Promise<SessionMessage[]> {
-		const entry = this.requireSession(sessionId);
+		const entry = await this.ensureRegisteredSession(sessionId);
 		return toBranchSessionMessages(entry.session.sessionManager.getBranch());
 	}
 
@@ -1481,7 +1496,7 @@ export class PiBackend {
 	}
 
 	async getTodos(sessionId: string): Promise<TodoItem[]> {
-		const entry = this.requireSession(sessionId);
+		const entry = await this.ensureRegisteredSession(sessionId);
 		for (const raw of [...entry.session.messages].reverse()) {
 			const m = raw as RawMessage;
 			if (m.role === "toolResult" && m.toolName === TODO_TOOL_NAME && !m.isError) {
@@ -1663,6 +1678,10 @@ export class PiBackend {
 	}
 	onExtensionEditorText(handler: (event: ExtensionEditorTextEvent) => void): () => void {
 		return this.extensionEditorTextEmitter.subscribe(handler);
+	}
+
+	getPendingExtensionDialogs(): ExtensionDialogRequest[] {
+		return this.registry.list().flatMap(({ dialogs }) => dialogs.listPending());
 	}
 
 	respondExtensionDialog(requestId: string, answer: ExtensionDialogRespond): void {

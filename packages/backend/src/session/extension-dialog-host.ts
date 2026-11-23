@@ -104,6 +104,10 @@ export class ExtensionDialogHost {
 		});
 	}
 
+	listPending(): ExtensionDialogRequest[] {
+		return [...this.pending.values()].map((entry) => entry.request);
+	}
+
 	respond(requestId: string, answer: ExtensionDialogRespond): void {
 		const entry = this.pending.get(requestId);
 		if (!entry || entry.settled) return;

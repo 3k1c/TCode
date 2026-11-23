@@ -150,7 +150,9 @@ export const useTranscriptStore = create<TranscriptStore>((set, get) => ({
 					...state.bySession,
 					[sessionId]: {
 						...(current ?? { ...EMPTY_ENTRY }),
-						pendingDialogs: [...(current?.pendingDialogs ?? []), req],
+						pendingDialogs: (current?.pendingDialogs ?? []).some((item) => item.id === req.id)
+							? current?.pendingDialogs ?? []
+							: [...(current?.pendingDialogs ?? []), req],
 					},
 				},
 			};

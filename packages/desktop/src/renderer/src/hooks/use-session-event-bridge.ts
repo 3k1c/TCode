@@ -1,6 +1,7 @@
 import { messagesToUIMessages, type SessionEvent, type TrustRequest } from "@tcode/shared";
 import { useEffect } from "react";
 import { getPi } from "../api";
+import { missedSessionCompletion } from "../lib/session-runtime-reconcile";
 import { useDraftStore } from "../stores/drafts";
 import { EventConflator } from "../stores/event-conflator";
 import { useProjectsStore } from "../stores/projects";

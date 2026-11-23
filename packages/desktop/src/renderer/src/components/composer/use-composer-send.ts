@@ -61,7 +61,6 @@ export function useComposerSend(options: UseComposerSendOptions) {
 	const [error, setErrorState] = useState<UiError | null>(null);
 	const [feedback, setFeedback] = useState<{ message: string; tone: "info" | "warn" } | null>(null);
 	const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
 	const sendGuard = useRef(createSendGuard());
 	const stoppingSessions = useRef(new Set<string>());
 

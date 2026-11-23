@@ -1,5 +1,5 @@
 import type { BrowserControlResult } from "./browser-control";
-import type { ExtensionDialogRespond } from "./extension-dialog";
+import type { ExtensionDialogRequest, ExtensionDialogRespond } from "./extension-dialog";
 import type { FileReadRequest, FileReadResult } from "./fs";
 import type { McpConfigListResult, McpMutationResult, McpRawConfig, McpUpsertInput } from "./mcp";
 import type { CatalogPackageType, CatalogSearchResult, ConfiguredPackageInfo } from "./packages";
@@ -219,6 +219,7 @@ export const REMOTE_BROWSER_CHANNELS = {
 } as const;
 
 export const EXTENSION_DIALOG_CHANNELS = {
+	getPendingExtensionDialogs: ch("extension-dialog:listPending")<void, ExtensionDialogRequest[]>(),
 	respondExtensionDialog: ch("extension-dialog:respond")<
 		{ requestId: string; answer: ExtensionDialogRespond },
 		void
