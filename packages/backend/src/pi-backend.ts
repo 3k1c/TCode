@@ -471,10 +471,10 @@ export class PiBackend {
 		}
 		tools.push(
 			makeAskUserTool({
-				askForm: (sessionId, questions) => {
+				askForm: (sessionId, questions, signal) => {
 					const host = sessionId ? this.registry.get(sessionId)?.dialogs : undefined;
 					if (!host) return Promise.resolve(undefined);
-					return host.ask("form", { title: "", questions }) as Promise<string[] | undefined>;
+					return host.ask("form", { title: "", questions }, { signal }) as Promise<string[] | undefined>;
 				},
 			}),
 		);

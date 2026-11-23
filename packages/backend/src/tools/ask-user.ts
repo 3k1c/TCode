@@ -71,6 +71,7 @@ export interface AskUserDeps {
 	askForm?: (
 		sessionId: string | undefined,
 		questions: ExtensionDialogQuestion[],
+		signal?: AbortSignal,
 	) => Promise<string[] | undefined>;
 }
 
@@ -144,7 +145,7 @@ export function makeAskUserTool(deps: AskUserDeps = {}): ToolDefinition<typeof a
 		execute: async (
 			_toolCallId,
 			params,
-			_signal,
+			signal,
 			_onUpdate,
 			ctx,
 		): Promise<AgentToolResult<AskUserDetails>> => {
@@ -159,7 +160,7 @@ export function makeAskUserTool(deps: AskUserDeps = {}): ToolDefinition<typeof a
 
 			let answers: string[] | undefined;
 			if (deps.askForm) {
-				answers = await deps.askForm(sessionIdOf(ctx), questions);
+				answers = await deps.askForm(sessionIdOf(ctx), questions, signal);
 			} else if (ctx.hasUI) {
 				answers = await askOneByOne(ctx, questions);
 			} else {
