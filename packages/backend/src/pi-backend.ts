@@ -240,6 +240,8 @@ export class PiBackend {
 
 	private readonly openFlights = new KeyedSingleFlight<SessionMeta>();
 
+	private readonly abortFlights = new KeyedSingleFlight<void>();
+
 	private readonly channelSubscriptionIds = new Map<string, Set<string>>();
 
 	readonly modelPrefs = new ModelPrefsService(join(getAgentDir(), "model-prefs.json"));
@@ -1166,10 +1168,36 @@ export class PiBackend {
 		});
 	}
 	async abort(sessionId: string): Promise<void> {
-		const entry = this.registry.get(sessionId);
-		if (!entry) return;
-		log.info("abort", sessionId);
-		await entry.session.abort();
+		return this.abortFlights.run(sessionId, async () => {
+			const entry = this.registry.get(sessionId);
+			if (!entry) return;
+			log.info("abort", sessionId);
+			// A tool can ignore abort and leave Pi in streaming state forever.
+			// Only force a fresh session after an explicit abort and bounded grace period.
+			await Promise.race([
+				Promise.resolve().then(() => entry.session.abort()).catch((error: unknown) => {
+					log.warn("session abort failed", sessionId, error);
+				}),
+				new Promise<void>((resolve) => setTimeout(resolve, 6_000)),
+			]);
+			if (entry.session.isStreaming) {
+				await new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+			}
+			if (this.registry.get(sessionId) !== entry || !entry.session.isStreaming) return;
+			const file = entry.session.sessionManager.getSessionFile();
+			if (!file || !existsSync(file)) {
+				log.warn("session abort remained busy; no saved file for recovery", sessionId);
+				return;
+			}
+			log.warn("session abort timed out; restoring saved session", sessionId);
+			await this.disposeSession(entry);
+			try {
+				await this.openSession(file);
+			} finally {
+				// The old agent may never emit its terminal event; release the UI spinner.
+				this.emitEvent(sessionId, { type: "agent_settled", aborted: true });
+			}
+		});
 	}
 
 	checkSessionWritable(sessionId: string): "ok" | "not_found" | "read_only" {

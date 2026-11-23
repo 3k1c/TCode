@@ -60,6 +60,7 @@ export function useComposerSend(options: UseComposerSendOptions) {
 	const [error, setErrorState] = useState<UiError | null>(null);
 	const [feedback, setFeedback] = useState<{ message: string; tone: "info" | "warn" } | null>(null);
 	const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const stoppingSessions = useRef(new Set<string>());
 
 	const sendGuard = useRef(createSendGuard());
 
@@ -252,11 +253,25 @@ export function useComposerSend(options: UseComposerSendOptions) {
 
 	const handleStop = async () => {
 		const { activeSessionId, setText } = options;
-		if (!activeSessionId) return;
+		if (!activeSessionId || stoppingSessions.current.has(activeSessionId)) return;
+		stoppingSessions.current.add(activeSessionId);
 		useTranscriptStore.getState().setFollowUpQueue(activeSessionId, []);
-		const cleared = await getPi().clearQueue({ sessionId: activeSessionId });
-		restoreQueuedIntoDraft(cleared.followUp, setText);
-		await getPi().abort({ sessionId: activeSessionId });
+		const pi = getPi();
+		try {
+			// Queue cleanup must never delay the actual stop request.
+			const [aborted, cleared] = await Promise.allSettled([
+				pi.abort({ sessionId: activeSessionId }),
+				pi.clearQueue({ sessionId: activeSessionId }),
+			]);
+			if (cleared.status === "fulfilled") restoreQueuedIntoDraft(cleared.value.followUp, setText);
+			else console.warn("Could not restore the queued follow-up", cleared.reason);
+			if (aborted.status === "rejected") {
+				const error = aborted.reason;
+				showFeedback(error instanceof Error ? error.message : String(error), "warn");
+			}
+		} finally {
+			stoppingSessions.current.delete(activeSessionId);
+		}
 	};
 
 	const handleRestoreQueue = async (focus: () => void) => {

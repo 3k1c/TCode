@@ -221,7 +221,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 		event.preventDefault();
 		textareaRef.current?.focus();
 	};
-	const isStreaming = transcript.phase === "streaming" || sending;
+	const isStreaming = transcript.phase === "streaming" || transcript.agentActive || sending;
 	const placeholder = readOnly
 		? t("composer.placeholderReadOnly")
 		: compacting
@@ -543,16 +543,17 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						<div className={readOnly ? "pointer-events-none opacity-40" : undefined}>
 							<ModelPicker compact={footerStage >= 1} />
 						</div>
-						{isStreaming && !hasContent ? (
+						{isStreaming && (
 							<button
 								type="button"
-								className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2"
+								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2"
 								onClick={() => void send.handleStop()}
 								aria-label={t("composer.stop")}
 							>
 								<StopIcon />
 							</button>
-						) : (
+						)}
+						{(!isStreaming || hasContent) && (
 							<button
 								type="button"
 								className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2 disabled:opacity-30"
