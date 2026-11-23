@@ -1,6 +1,6 @@
 import { messagesToUIMessages, type SessionEvent, type TrustRequest } from "@tcode/shared";
 import { useEffect } from "react";
-import { getPi } from "../api";
+import { getPi, onRuntimeSnapshot } from "../api";
 import { useDraftStore } from "../stores/drafts";
 import { EventConflator } from "../stores/event-conflator";
 import { useProjectsStore } from "../stores/projects";
@@ -55,7 +55,10 @@ export function useSessionEventBridge({
 				}
 			})();
 		};
-		const runtimeTimer = setInterval(reconcile, 4_000);
+		// Immediate reconciliation after reconnect; slow polling remains a fallback
+		// for older servers that do not yet send runtime snapshots.
+		const offRuntimeSnapshot = onRuntimeSnapshot(reconcile);
+		const runtimeTimer = setInterval(reconcile, 30_000);
 		void Promise.resolve().then(reconcile);
 		const conflator = new EventConflator({
 			apply: (sessionId, event) => {
@@ -103,6 +106,7 @@ export function useSessionEventBridge({
 		});
 		return () => {
 			clearInterval(runtimeTimer);
+			offRuntimeSnapshot();
 			offEvent();
 			conflator.dispose();
 			offPermission();

@@ -237,6 +237,15 @@ async function handleWsMessage(ws: WebSocket, raw: RawData): Promise<void> {
 	}
 	if (message.kind === "hello" && typeof message.session === "string") {
 		bindBridgeSession(ws, message.session);
+		// Reconnect snapshot: the browser must not infer running state from stale UI.
+		try {
+			const runtime = await invokeRegistry.get("session:activeRuntime")?.(undefined);
+			if (ws.readyState === 1) { // WebSocket.OPEN
+				ws.send(JSON.stringify({ kind: "event", channel: "session:runtimeSnapshot", payload: runtime ?? [] }));
+			}
+		} catch (error) {
+			console.warn("[web-bridge] Failed to send session runtime snapshot", error);
+		}
 		return;
 	}
 	if (message.kind !== "invoke" || typeof message.id !== "number") return;

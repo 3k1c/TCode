@@ -176,3 +176,47 @@ describe("pty", () => {
 		expect(exits.length).toBe(2);
 	});
 });
+
+// Regression: a detached grandchild can keep stdout/stderr pipes open after bash exits.
+describe("shell.run pipe lifecycle", () => {
+	it("returns after the direct shell exits even when a grandchild inherits stdout", async () => {
+		const start = Date.now();
+		const { payload, chunks } = await sh("sleep 8 & echo parent-finished");
+		expect(payload.ok).toBe(true);
+		expect(payload.code).toBe(0);
+		expect(chunks.map((x) => x.s).join("")).toContain("parent-finished");
+		expect(Date.now() - start).toBeLessThan(4500);
+	});
+	it("reports a failure code without converting it to success", async () => {
+		const { payload } = await sh("echo failed >&2; exit 17");
+		expect(payload.ok).toBe(false);
+		expect(payload.code).toBe(17);
+	});
+	it("does not turn a slow but finite foreground command into a failure", async () => {
+		const { payload } = await sh("sleep 1; echo completed");
+		expect(payload.ok).toBe(true);
+	});
+});
+
+// Windows smoke: only cancel the process tree created by this test.
+describe.skipIf(process.platform !== "win32")("Windows shell cancellation", () => {
+	it("terminates a running shell and its known sleep child", async () => {
+		const pidFile = join(dir, "child.pid");
+		const call = runner.call({ cmd: "shell.run", cwd: dir,
+			script: `sleep 30 & echo $! > '${pidFile.replace(/\\/g, "/")}'; wait` })!;
+		const { existsSync, readFileSync } = await import("node:fs");
+		for (let i = 0; i < 40 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 100));
+		expect(existsSync(pidFile)).toBe(true);
+		const childPid = Number(readFileSync(pidFile, "utf8").trim());
+		await new Promise((r) => setTimeout(r, 2300)); // Allow Windows process sampler to capture the child.
+		expect(runner.sendBridge({ cmd: "shell.kill", session: call.id })).toBe(true);
+		const result = await call.promise;
+		expect(result.ok).toBe(false);
+		expect(result.canceled).toBe(true);
+		await new Promise((r) => setTimeout(r, 2500));
+		const { execFileSync } = await import("node:child_process");
+		const alive = execFileSync("powershell", ["-NoProfile", "-Command",
+			`[bool](Get-Process -Id ${childPid} -ErrorAction SilentlyContinue)`], { encoding: "utf8" }).trim();
+		expect(alive).toBe("False");
+	}, 15_000);
+});

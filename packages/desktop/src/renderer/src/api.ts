@@ -72,11 +72,18 @@ function detectPlatform(): PiApi["platform"] {
 
 const FRAME_HEADER_LENGTH = 4;
 
+const runtimeSnapshotCallbacks = new Set<() => void>();
+export function onRuntimeSnapshot(callback: () => void): () => void {
+	runtimeSnapshotCallbacks.add(callback);
+	return () => runtimeSnapshotCallbacks.delete(callback);
+}
+
 function createRemotePi(): PiApi {
 	const currentBase = () => bridgeBase();
 
 	const pageSessionId = randomUid();
 	const listeners = new Map<string, Set<(payload: unknown) => void>>();
+	let latestRuntimeSnapshot: unknown;
 	let socket: WebSocket | null = null;
 
 	let ready: Promise<void> | null = null;
@@ -94,6 +101,10 @@ function createRemotePi(): PiApi {
 	const frameUrls = new Map<string, string>();
 
 	const deliver = (channel: string, payload: unknown) => {
+		if (channel === "session:runtimeSnapshot") {
+			latestRuntimeSnapshot = payload;
+			for (const callback of runtimeSnapshotCallbacks) callback();
+		}
 		for (const cb of listeners.get(channel) ?? []) {
 			try {
 				cb(payload);
@@ -193,6 +204,7 @@ function createRemotePi(): PiApi {
 		ws.onclose = () => {
 			if (socket !== ws) return;
 
+			latestRuntimeSnapshot = undefined;
 			socket = null;
 			ready = null;
 			rejectPending();
@@ -242,6 +254,9 @@ function createRemotePi(): PiApi {
 				listeners.set(channel, set);
 			}
 			set.add(cb as (payload: unknown) => void);
+			if (channel === "session:runtimeSnapshot" && latestRuntimeSnapshot !== undefined) {
+				queueMicrotask(() => cb(latestRuntimeSnapshot as T));
+			}
 			return () => {
 				set?.delete(cb as (payload: unknown) => void);
 			};

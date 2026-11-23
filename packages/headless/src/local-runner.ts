@@ -15,6 +15,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { WindowsProcessTree } from "./windows-process-tree";
 
 type Payload = Record<string, unknown>;
 type StreamCb = (data: string, stream: "out" | "err") => void;
@@ -163,6 +164,8 @@ interface ShellCall {
 	canceled: boolean;
 	timedOut: boolean;
 	killTimer?: NodeJS.Timeout;
+	forceFinish?: () => void;
+	tracker?: WindowsProcessTree;
 }
 
 export class LocalRunner {
@@ -314,57 +317,128 @@ export class LocalRunner {
 				return;
 			}
 			const call: ShellCall = { child, canceled: false, timedOut: false };
+			if (child.pid && process.platform === "win32") {
+				call.tracker = new WindowsProcessTree(child.pid);
+			}
 			this.shells.set(id, call);
 
 			const outDec = new StringDecoder("utf8");
 			const errDec = new StringDecoder("utf8");
+			const startedAt = Date.now();
+			let lastOutputAt = startedAt;
+			let lastNoticeAt = 0;
+			// A lack of output is a warning, not proof that compilation is stalled.
+			const progressTimer = setInterval(() => {
+				const now = Date.now();
+				if (now - lastOutputAt < 120_000 || now - lastNoticeAt < 60_000) return;
+				lastNoticeAt = now;
+				onStream?.(`[TCode] Still running: ${Math.floor((now - startedAt) / 60_000)} min elapsed; ${Math.floor((now - lastOutputAt) / 60_000)} min without output.\n`, "err");
+			}, 30_000);
+			progressTimer.unref?.();
 			child.stdout?.on("data", (b: Buffer) => {
+				lastOutputAt = Date.now();
 				const s = outDec.write(b);
 				if (s) onStream?.(s, "out");
 			});
 			child.stderr?.on("data", (b: Buffer) => {
+				lastOutputAt = Date.now();
 				const s = errDec.write(b);
 				if (s) onStream?.(s, "err");
 			});
 
-			const timer =
-				req.timeoutMs && req.timeoutMs > 0
-					? setTimeout(() => {
-							call.timedOut = true;
-							this.terminate(call);
-						}, req.timeoutMs)
-					: undefined;
-
 			let settled = false;
+			let exitSeen = false;
+			let exitCode: number | null = null;
+			let drainTimer: NodeJS.Timeout | undefined;
+			let pipesClosed = false;
+			let outputIncomplete = false;
+			let finishReason: "exit" | "close" | "error" | "timeout" | "cancel" = "exit";
 			const finish = (code: number | null) => {
 				if (settled) return;
 				settled = true;
 				if (timer) clearTimeout(timer);
+				clearInterval(progressTimer);
+				if (drainTimer) clearTimeout(drainTimer);
 				if (call.killTimer) clearTimeout(call.killTimer);
 				this.shells.delete(id);
+				call.tracker?.stopMonitoring();
+				// Do not wait for inherited pipes after the direct child has exited.
 				const restOut = outDec.end();
 				const restErr = errDec.end();
 				if (restOut) onStream?.(restOut, "out");
 				if (restErr) onStream?.(restErr, "err");
 				resolve({
 					ok: code === 0 && !call.canceled && !call.timedOut,
-					code: code ?? (call.canceled || call.timedOut ? 130 : 1),
+					code: call.timedOut ? 124 : call.canceled ? 130 : (code ?? 1),
 					canceled: call.canceled,
 					timedOut: call.timedOut,
-					truncated: false,
+					truncated: outputIncomplete,
+					outputIncomplete,
+					finishReason,
 				});
 			};
+			call.forceFinish = () => {
+				outputIncomplete = true;
+				finishReason = call.timedOut ? "timeout" : "cancel";
+				child.stdout?.destroy();
+				child.stderr?.destroy();
+				finish(call.timedOut ? 124 : 130);
+			};
+			const closePipes = () => {
+				if (settled) return;
+				outputIncomplete = !pipesClosed;
+				if (outputIncomplete) {
+					child.stdout?.destroy();
+					child.stderr?.destroy();
+				}
+				finish(exitCode);
+			};
+			const onExit = (code: number | null) => {
+				if (settled || exitSeen) return;
+				exitSeen = true;
+				exitCode = code;
+				// stdout/stderr may be inherited by a detached grandchild. Never
+				// make the parent's tool result depend on the grandchild closing them.
+				drainTimer = setTimeout(closePipes, 1500);
+			};
+			const timer =
+				req.timeoutMs && req.timeoutMs > 0
+					? setTimeout(() => {
+							call.timedOut = true;
+							finishReason = "timeout";
+							this.terminate(call);
+						}, req.timeoutMs)
+					: undefined;
 			child.on("error", (e) => {
-				onStream?.(`${e.message}\n`, "err");
+				onStream?.(e.message + "\n", "err");
+				finishReason = "error";
 				finish(127);
 			});
-			child.on("close", (code) => finish(code));
+			child.on("exit", onExit);
+			child.on("close", (code) => {
+				pipesClosed = true;
+				if (!exitSeen) {
+					exitSeen = true;
+					exitCode = code;
+				}
+				if (!settled) {
+					if (call.timedOut) finishReason = "timeout";
+					else if (call.canceled) finishReason = "cancel";
+					else finishReason = "close";
+					finish(exitCode);
+				}
+			});
 		});
 	}
 
 	private terminate(call: ShellCall): void {
 		killTree(call.child, "SIGTERM");
-		call.killTimer = setTimeout(() => killTree(call.child, "SIGKILL"), this.opts.killGraceMs);
+		void call.tracker?.terminate();
+		call.killTimer = setTimeout(() => {
+			killTree(call.child, "SIGKILL");
+			void call.tracker?.terminate();
+			setTimeout(() => call.forceFinish?.(), 2000).unref?.();
+		}, this.opts.killGraceMs);
 		call.killTimer.unref?.();
 	}
 
@@ -453,6 +527,7 @@ export class LocalRunner {
 		for (const call of this.shells.values()) {
 			call.canceled = true;
 			killTree(call.child, "SIGKILL");
+			void call.tracker?.terminate();
 		}
 		this.shells.clear();
 		for (const { pty, handlers } of this.ptys.values()) {

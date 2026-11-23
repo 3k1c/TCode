@@ -131,6 +131,7 @@ import { renameSessionFile } from "./session/rename";
 import { makeReplyLanguageExtension } from "./session/reply-language";
 import { SessionWatcher } from "./session/session-watcher";
 import { KeyedSingleFlight } from "./session/single-flight";
+import { awaitAbortOrTimeout } from "./session/abort-control";
 import { StreamGuard } from "./session/stream-guard";
 import { toSdkThinkingLevel } from "./session/thinking";
 import { TraceRecorder } from "./session/trace";
@@ -239,6 +240,7 @@ export class PiBackend {
 	private readonly registry = new SessionRegistry();
 
 	private readonly openFlights = new KeyedSingleFlight<SessionMeta>();
+	private readonly abortFlights = new KeyedSingleFlight<void>();
 
 	private readonly channelSubscriptionIds = new Map<string, Set<string>>();
 
@@ -1166,10 +1168,14 @@ export class PiBackend {
 		});
 	}
 	async abort(sessionId: string): Promise<void> {
-		const entry = this.registry.get(sessionId);
-		if (!entry) return;
-		log.info("abort", sessionId);
-		await entry.session.abort();
+		return this.abortFlights.run(sessionId, async () => {
+			const entry = this.registry.get(sessionId);
+			if (!entry) return;
+			log.info("abort", sessionId);
+			// A stalled tool must not force a session reload: that invalidates
+			// ExtensionContext references while the old turn may still be alive.
+			await awaitAbortOrTimeout(() => entry.session.abort());
+		});
 	}
 
 	checkSessionWritable(sessionId: string): "ok" | "not_found" | "read_only" {

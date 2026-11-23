@@ -539,7 +539,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						<div className={readOnly ? "pointer-events-none opacity-40" : undefined}>
 							<PermissionPicker compact={footerStage >= 2} />
 						</div>
-						<div data-footer-spacer="" className="flex-1" />
+						<div data-footer-spacer="" className="min-w-0 flex-1" />
 						<ContextRing />
 						<RegionHost region={UI_REGIONS.ComposerFooter} />
 						<div className={readOnly ? "pointer-events-none opacity-40" : undefined}>
@@ -548,7 +548,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						{showStop && (
 							<button
 								type="button"
-								className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2"
+								className="flex h-8 w-8 min-w-8 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2"
 								onClick={() => void send.handleStop()}
 								aria-label={t("composer.stop")}
 							>
@@ -558,7 +558,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						{showSend && (
 							<button
 								type="button"
-								className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2 disabled:opacity-30"
+								className="flex h-8 w-8 min-w-8 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2 disabled:opacity-30"
 								disabled={readOnly || !hasContent || sending}
 								onClick={() => void handleSend()}
 								aria-label={t("composer.send")}
