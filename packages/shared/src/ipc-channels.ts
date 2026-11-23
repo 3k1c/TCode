@@ -71,6 +71,7 @@ export const SESSION_CHANNELS = {
 	setModel: ch("session:setModel")<{ sessionId: string; provider: string; modelId: string }, string>(),
 
 	listAllSessions: ch("session:listAll")<void, SessionMeta[]>(),
+	getActiveSessionRuntime: ch("session:activeRuntime")<void, { sessionId: string; streaming: boolean; compacting: boolean }[]>(),
 	openSession: ch("session:open")<{ filePath: string }, SessionMeta>(),
 
 	closeSession: ch("session:close")<
