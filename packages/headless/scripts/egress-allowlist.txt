@@ -5,3 +5,12 @@ raw.githubusercontent.com
 api.github.com
 pi.dev
 opencode.ai
+# Reviewed additions from the bundled web-push dependency (2026-11-23).
+# These two are push-service endpoint prefixes, not arbitrary user destinations.
+android.googleapis.com
+fcm.googleapis.com
+# This is the configured VAPID contact origin, not a runtime fetch.
+tcode.kovami.app
+# Documentation links embedded in a dependency comment; no network request.
+developer.mozilla.org
+stackoverflow.com
