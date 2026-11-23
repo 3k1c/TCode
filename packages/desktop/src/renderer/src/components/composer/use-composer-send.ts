@@ -12,6 +12,7 @@ import { splitQueuedForDraft } from "./queued-text";
 import { buildQuoteBlock } from "./quote";
 import { buildSendUiError } from "./send-error";
 import { createSendGuard } from "./send-guard";
+import { beginSessionStop } from "./stop-session";
 
 export interface UseComposerSendOptions {
 	activeSessionId: string | null;
@@ -62,6 +63,7 @@ export function useComposerSend(options: UseComposerSendOptions) {
 	const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const sendGuard = useRef(createSendGuard());
+	const stoppingSessions = useRef(new Set<string>());
 
 	const setError = (message: string | null) => setErrorState(message ? buildSendUiError(message) : null);
 
@@ -252,11 +254,32 @@ export function useComposerSend(options: UseComposerSendOptions) {
 
 	const handleStop = async () => {
 		const { activeSessionId, setText } = options;
-		if (!activeSessionId) return;
+		if (!activeSessionId || stoppingSessions.current.has(activeSessionId)) return;
+		stoppingSessions.current.add(activeSessionId);
 		useTranscriptStore.getState().setFollowUpQueue(activeSessionId, []);
-		const cleared = await getPi().clearQueue({ sessionId: activeSessionId });
-		restoreQueuedIntoDraft(cleared.followUp, setText);
-		await getPi().abort({ sessionId: activeSessionId });
+
+		// Prioritize cancellation. Do not wait for queue cleanup before notifying Pi.
+		const { aborted, cleared } = beginSessionStop(getPi(), activeSessionId);
+		let abortSettled = false;
+		void aborted.then(
+			() => { abortSettled = true; },
+			() => { abortSettled = true; },
+		);
+		const watchdog = setTimeout(() => {
+			stoppingSessions.current.delete(activeSessionId);
+			if (!abortSettled) showFeedback(t("composer.stopPending"), "warn");
+		}, 8000);
+		try {
+			const [abortResult, queueResult] = await Promise.allSettled([
+				aborted,
+				cleared.then((result) => restoreQueuedIntoDraft(result.followUp, setText)),
+			]);
+			if (abortResult.status === "rejected") showFeedback(t("composer.stopFailed"), "warn");
+			else if (queueResult.status === "rejected") showFeedback(t("composer.queueClearFailed"), "warn");
+		} finally {
+			clearTimeout(watchdog);
+			stoppingSessions.current.delete(activeSessionId);
+		}
 	};
 
 	const handleRestoreQueue = async (focus: () => void) => {

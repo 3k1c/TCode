@@ -34,6 +34,7 @@ import { QuoteChip } from "./QuoteChip";
 import { SendErrorBar } from "./SendErrorBar";
 import { SlashMenu } from "./SlashMenu";
 import { slashPresentation } from "./slash-label";
+import { composerControlVisibility } from "./stop-session";
 import { useAtCompletion } from "./use-at-completion";
 import { useComposerSend } from "./use-composer-send";
 import { footerRestoreSlackPx, useFooterCompact } from "./use-footer-compact";
@@ -221,7 +222,8 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 		event.preventDefault();
 		textareaRef.current?.focus();
 	};
-	const isStreaming = transcript.phase === "streaming" || sending;
+	const isStreaming = transcript.phase === "streaming" || transcript.agentActive || sending;
+	const { showStop, showSend } = composerControlVisibility(isStreaming, hasContent);
 	const placeholder = readOnly
 		? t("composer.placeholderReadOnly")
 		: compacting
@@ -543,7 +545,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						<div className={readOnly ? "pointer-events-none opacity-40" : undefined}>
 							<ModelPicker compact={footerStage >= 1} />
 						</div>
-						{isStreaming && !hasContent ? (
+						{showStop && (
 							<button
 								type="button"
 								className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2"
@@ -552,7 +554,8 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 							>
 								<StopIcon />
 							</button>
-						) : (
+						)}
+						{showSend && (
 							<button
 								type="button"
 								className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2 disabled:opacity-30"
