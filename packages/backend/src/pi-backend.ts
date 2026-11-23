@@ -1694,6 +1694,10 @@ export class PiBackend {
 		return this.extensionEditorTextEmitter.subscribe(handler);
 	}
 
+	getPendingExtensionDialogs(): ExtensionDialogRequest[] {
+		return this.registry.list().flatMap(({ dialogs }) => dialogs.listPending());
+	}
+
 	respondExtensionDialog(requestId: string, answer: ExtensionDialogRespond): void {
 		for (const { dialogs } of this.registry.list()) {
 			dialogs.respond(requestId, answer);

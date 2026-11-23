@@ -5,7 +5,9 @@ import { hostname, networkInterfaces } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
+	EXTENSION_DIALOG_CHANNELS,
 	IpcChannels,
+	type ExtensionDialogRequest,
 	type RemoteBrowserFrame,
 	type WebAccessScope,
 	type WebAccessStatus,
@@ -237,6 +239,23 @@ async function handleWsMessage(ws: WebSocket, raw: RawData): Promise<void> {
 	}
 	if (message.kind === "hello" && typeof message.session === "string") {
 		bindBridgeSession(ws, message.session);
+		// Requests are ephemeral UI events. Replay live dialogs after reconnect,
+		// otherwise a refreshed browser leaves the Pi tool waiting invisibly.
+		try {
+			const getPending = invokeRegistry.get(EXTENSION_DIALOG_CHANNELS.getPendingExtensionDialogs.channel);
+			const requests = getPending ? await getPending(undefined) : [];
+			if (Array.isArray(requests)) {
+				for (const request of requests as ExtensionDialogRequest[]) {
+					ws.send(JSON.stringify({
+						kind: "event",
+						channel: IpcChannels.ExtensionDialogRequest,
+						payload: request,
+					}));
+				}
+			}
+		} catch (error) {
+			console.warn("Could not replay pending extension dialogs", error);
+		}
 		return;
 	}
 	if (message.kind !== "invoke" || typeof message.id !== "number") return;

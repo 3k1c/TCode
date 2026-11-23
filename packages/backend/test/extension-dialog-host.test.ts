@@ -23,6 +23,18 @@ async function withFakeTimers(fn: () => Promise<void> | void) {
 }
 
 describe("ExtensionDialogHost", () => {
+	it("pending requests remain available for reconnect and disappear after response", async () => {
+		const { host, requests } = makeHost();
+		const first = host.ask("form", {
+			title: "",
+			questions: [{ question: "Choose", options: ["A", "B"] }],
+		});
+		expect(host.listPending()).toEqual([requests[0]]);
+		host.respond(requests[0].id, { answers: ["A"] });
+		await expect(first).resolves.toEqual(["A"]);
+		expect(host.listPending()).toEqual([]);
+	});
+
 	it("ask 分发请求（id/sessionId/kind/title/options/requestedAt），respond 落用户值", async () => {
 		const { host, requests, resolved } = makeHost();
 		const promise = host.ask("select", { title: "选一个", options: ["a", "b"] });

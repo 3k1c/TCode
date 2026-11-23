@@ -4,6 +4,7 @@ import { registerInvokeHandlers } from "./invoke";
 
 export function registerExtensionDialogIpc(backend: PiBackend): void {
 	registerInvokeHandlers(EXTENSION_DIALOG_CHANNELS, {
+		getPendingExtensionDialogs: () => backend.getPendingExtensionDialogs(),
 		respondExtensionDialog: ({ requestId, answer }) => backend.respondExtensionDialog(requestId, answer),
 	});
 }
