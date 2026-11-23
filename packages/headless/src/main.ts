@@ -13,7 +13,14 @@ import { registerIpc } from "../../desktop/src/main/ipc";
 import { invokeRegistry } from "../../desktop/src/main/ipc/invoke";
 import { loadUiPluginsConfig } from "../../desktop/src/main/ui-plugins/config";
 import { UiPluginManager, uiPluginsResourcesDir } from "../../desktop/src/main/ui-plugins/manager";
-import { WebBridgeService } from "../../desktop/src/main/web-bridge";
+import { WebBridgeService, broadcastBridgeEvent, hasBridgeClients, setBridgeExtensionHandler } from "../../desktop/src/main/web-bridge";
+import { registerRemoteBrowserIpc } from "../../desktop/src/main/ipc/remote-browser";
+import type { RemoteBrowserManager } from "../../desktop/src/main/remote-browser";
+import { loadUiState } from "../../desktop/src/main/ui-state";
+import { HeadlessBrowserManager } from "./chromium-browser";
+import { makeHeadlessBrowserTool } from "./chromium-browser-tool";
+import { setExternalTaskNotifier } from "../../desktop/src/main/task-notify";
+import { HeadlessWebPush } from "./web-push";
 import { APP_ROOT, DATA_DIR, RESOURCES_DIR } from "./boot-env";
 import { LocalRunner } from "./local-runner";
 
@@ -72,11 +79,14 @@ async function main(): Promise<void> {
 
 	// --- backend (Pi SDK) --------------------------------------------------------------------
 	// No embedded browser in headless mode: browser-control tool/skills are gated off.
-	const gates = { skills: new Set<string>(), tools: new Set<string>(["browser"]) };
+	const gates = { skills: new Set<string>(), tools: new Set<string>() };
+	const browserManager = new HeadlessBrowserManager(broadcastBridgeEvent, hasBridgeClients);
 	const warmFeatureGates = async () => {
 		gates.skills.clear();
 		for (const [skillName, feature] of Object.entries(FEATURE_GATED_SKILLS)) {
-			if (feature === "browserControl") gates.skills.add(skillName);
+			if (feature === "browserControl") {
+                if ((await loadUiState().catch(() => null))?.browserControl === false) gates.skills.add(skillName);
+            }
 			else if (feature === "crossSessionCollab") {
 				if (backend.getChannelWatchConfig().enabled !== true) gates.skills.add(skillName);
 			} else {
@@ -95,7 +105,7 @@ async function main(): Promise<void> {
 			},
 			additionalSkillPaths: [join(uiPluginsResourcesDir(), "skills"), join(RESOURCES_DIR, "skills")],
 		},
-		customTools: [makeComponentBashTool(process.cwd())],
+		customTools: [makeHeadlessBrowserTool(browserManager), makeComponentBashTool(process.cwd())],
 		dailyDir: getDailyDir(),
 		featureGates: { warm: warmFeatureGates, get: () => gates },
 	});
@@ -104,6 +114,11 @@ async function main(): Promise<void> {
 
 	const uiPluginsManager = new UiPluginManager();
 	await uiPluginsManager.init();
+
+    // Push notifications are an optional headless-only service.
+    const webPush = new HeadlessWebPush(DATA_DIR);
+    setBridgeExtensionHandler((req, res, url) => webPush.handle(req, res, url));
+    setExternalTaskNotifier((event) => webPush.notify(event));
 
 	// --- web bridge (HTTP + WS) --------------------------------------------------------------
 	const port = envInt("TCODE_PORT", 1200);
@@ -125,6 +140,9 @@ async function main(): Promise<void> {
 	for (const d of ["sessions", "sessions-subagents"]) mkdirSync(join(agentDir, d), { recursive: true });
 
 	registerIpc(backend, uiPluginsManager, webBridge);
+    // Override Electron offscreen IPC with the real Chromium adapter in Headless only.
+    registerRemoteBrowserIpc(browserManager as unknown as RemoteBrowserManager);
+    app.on("before-quit", () => browserManager.destroyAll());
 
 	// Desktop-only / phone-home channels become inert stubs. The bridge settings are read-only here:
 	// toggling them from the web page could lock the operator out.

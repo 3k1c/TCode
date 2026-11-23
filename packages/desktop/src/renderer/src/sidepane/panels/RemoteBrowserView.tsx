@@ -263,7 +263,7 @@ export function RemoteBrowserView({
 		dirtyRef.current = false;
 		setDraft(target);
 		const seq = ++openSeqRef.current;
-		const embeddable = await probeEmbeddable(target);
+		const embeddable = import.meta.env.VITE_TCODE_HEADLESS ? false : await probeEmbeddable(target);
 		if (seq !== openSeqRef.current) return;
 		setFrame(null);
 		setPageUrl("");

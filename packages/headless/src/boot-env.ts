@@ -19,6 +19,7 @@ export const APP_ROOT = process.env.TCODE_APP_ROOT ? resolve(process.env.TCODE_A
 export const DATA_DIR = resolve(process.env.TCODE_DATA_DIR || join(homedir(), ".tcode-headless"));
 export const RESOURCES_DIR = join(DATA_DIR, "resources");
 
+process.env.TCODE_HEADLESS = "1";
 process.env.TCODE_APP_ROOT = APP_ROOT;
 process.env.TCODE_DATA_DIR = DATA_DIR;
 

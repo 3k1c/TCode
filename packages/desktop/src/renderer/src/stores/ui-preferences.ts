@@ -85,6 +85,8 @@ function normalizeSidebarBackground(value: unknown): SidebarBackground {
 }
 
 function applySidebarBackground(value: SidebarBackground): void {
+	// Store hydration also runs in Node tests and non-DOM renderers.
+	if (typeof document === "undefined") return;
 	document.documentElement.dataset.sidebarBg = value;
 }
 

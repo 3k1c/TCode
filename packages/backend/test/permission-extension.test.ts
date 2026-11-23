@@ -176,8 +176,9 @@ describe("permission-gate 扩展", () => {
 	it("默认档越界一律拒绝：界外读写都 block 且不弹窗；加成工作区根后放行", async () => {
 		const dir = makeAgentDir();
 
-		const root = join(process.cwd(), ".perm-ext-ws");
-		const other = join(process.cwd(), ".perm-ext-outside");
+		// Avoid temporary directories: temporary-path exemptions are intentionally permissive.
+		const root = join(homedir(), ".perm-ext-ws");
+		const other = join(homedir(), ".perm-ext-outside");
 		const { call, confirms } = makeHarness(dir, false, { projectRoot: root });
 
 		await expect(call("read", { path: join(homedir(), ".perm-ext-host.txt") })).resolves.toMatchObject({
@@ -268,7 +269,7 @@ describe("permission-gate 扩展", () => {
 		writeFileSync(join(dir, "permissions.json"), JSON.stringify({ outside: { write: "ask" } }));
 		const root = join(dir, "proj");
 
-		const fixtureBase = mkdtempSync(join(process.cwd(), ".perm-ext-fixture-"));
+		const fixtureBase = mkdtempSync(join(homedir(), ".perm-ext-fixture-"));
 		const repo = join(fixtureBase, "other-repo");
 		mkdirSync(root, { recursive: true });
 		mkdirSync(join(repo, "sub"), { recursive: true });

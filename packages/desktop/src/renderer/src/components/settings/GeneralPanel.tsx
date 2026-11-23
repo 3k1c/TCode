@@ -9,6 +9,7 @@ import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { Switch } from "../ui/Switch";
 import { APPEARANCE_TABS, AppearancePanel, type AppearanceTab } from "./AppearancePanel";
 import { WebAccessPanel } from "./WebAccessPanel";
+import { WebPushControls } from "./WebPushControls";
 
 const CONTEXT_MANAGER_MODES: ContextManagerMode[] = ["evaporation", "off"];
 
@@ -125,8 +126,9 @@ export function GeneralPanel() {
 					<div>
 						<div className="flex items-center justify-between gap-4">
 							<h3 className="text-[13px] font-medium text-ink">{t("settings.taskNotify")}</h3>
-							<Switch checked={taskNotifyEnabled} onCheckedChange={setTaskNotifyEnabled} />
+							{!import.meta.env.VITE_TCODE_HEADLESS && <Switch checked={taskNotifyEnabled} onCheckedChange={setTaskNotifyEnabled} />}
 						</div>
+                        {import.meta.env.VITE_TCODE_HEADLESS ? <WebPushControls /> : <>
 						<p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
 							{t("settings.taskNotifyHint")}
 						</p>
@@ -147,6 +149,7 @@ export function GeneralPanel() {
 						>
 							{t("settings.taskNotifyTest")}
 						</button>
+                        </>}
 					</div>
 					<div>
 						<div className="flex items-center justify-between gap-4">

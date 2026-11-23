@@ -1,6 +1,7 @@
 import type { ImageInput } from "@tcode/shared";
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { getPi } from "../../api";
+import { uploadWebFile } from "../../lib/web-file-upload";
 import { useActiveModelInfo, useSessionReadOnly } from "../../hooks/use-session-state";
 import { useT } from "../../i18n";
 import { RegionHost } from "../../plugins/RegionHost";
@@ -112,6 +113,9 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 	const boxRef = useRef<HTMLDivElement>(null);
 	const annotationsRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const handleFilesRef = useRef<(files: FileList | File[] | null) => Promise<void>>(() => Promise.resolve());
+	const uploadingRef = useRef(0);
+	const [uploading, setUploading] = useState(0);
 
 	const cardRef = useRef<HTMLDivElement>(null);
 	const setFloorPx = useChatLayoutStore((s) => s.setFloorPx);
@@ -214,6 +218,13 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 	});
 	const { sending, error, setError, feedback, showFeedback, ensureSession, runSlashCommand, handleSend } =
 		send;
+	const handleSendReady = () => {
+        if (uploadingRef.current > 0) {
+            setError("檔案上載中，請完成後再送出");
+            return;
+        }
+        void handleSend();
+    };
 	const focusTextarea = () => textareaRef.current?.focus();
 
 	const handleComposerMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -278,7 +289,11 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 		const onDrop = (event: DragEvent) => {
 			if (!containsFiles(event) || !event.dataTransfer) return;
 			event.preventDefault();
-			appendAttachments(resolveDroppedFilePaths(event.dataTransfer.files, getPi().getPathForFile));
+			if (import.meta.env.VITE_TCODE_HEADLESS) {
+                void handleFilesRef.current(event.dataTransfer.files);
+            } else {
+                appendAttachments(resolveDroppedFilePaths(event.dataTransfer.files, getPi().getPathForFile));
+            }
 		};
 		window.addEventListener("dragover", onDragOver);
 		window.addEventListener("drop", onDrop);
@@ -343,27 +358,44 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 		}
 		if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
 			e.preventDefault();
-			void handleSend();
+			handleSendReady();
 		}
 	};
 
-	const handleFiles = (files: FileList | File[] | null) => {
-		if (!files || files.length === 0) return;
-
-		if (!imagesSupported) return;
-		for (const file of Array.from(files)) {
-			if (!file.type.startsWith("image/")) continue;
-			const reader = new FileReader();
-			reader.onload = () => {
-				const result = reader.result;
-				if (typeof result !== "string") return;
-				const comma = result.indexOf(",");
-				if (comma === -1) return;
-				setImages((prev) => [...prev, { data: result.slice(comma + 1), mimeType: file.type }]);
-			};
-			reader.readAsDataURL(file);
-		}
-	};
+	const handleFiles = async (files: FileList | File[] | null): Promise<void> => {
+        if (!files || files.length === 0 || readOnly) return;
+        const selected = Array.from(files);
+        uploadingRef.current += 1;
+        setUploading((n) => n + 1);
+        try {
+            for (const file of selected) {
+                // Models with vision can take images directly, without a server-side copy.
+                if (file.type.startsWith("image/") && imagesSupported) {
+                    const dataUrl = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("圖片讀取失敗"));
+                        reader.onerror = () => reject(new Error("圖片讀取失敗"));
+                        reader.readAsDataURL(file);
+                    });
+                    const comma = dataUrl.indexOf(",");
+                    if (comma === -1) throw new Error("無效的圖片格式");
+                    setImages((prev) => [...prev, { data: dataUrl.slice(comma + 1), mimeType: file.type }]);
+                } else if (import.meta.env.VITE_TCODE_HEADLESS) {
+                    appendAttachments([await uploadWebFile(file)]);
+                } else {
+                    const path = getPi().getPathForFile(file);
+                    if (!path) throw new Error("無法取得本機檔案路徑");
+                    appendAttachments([path]);
+                }
+            }
+        } catch (error) {
+            setError(error instanceof Error ? error.message : "檔案上載失敗");
+        } finally {
+            uploadingRef.current -= 1;
+            setUploading((n) => Math.max(0, n - 1));
+        }
+    };
+    handleFilesRef.current = handleFiles;
 
 	const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
 		const items = e.clipboardData?.items;
@@ -377,20 +409,14 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 		}
 		if (files.length === 0) return;
 
-		if (!imagesSupported) {
-			e.preventDefault();
-
-			pushToast("warning", "composer.imageUnsupported");
-			return;
-		}
 		e.preventDefault();
-		handleFiles(files);
+        void handleFiles(files);
 	};
 
 	return (
 		<div ref={boxRef} className={centered ? "w-full max-w-[760px]" : "shrink-0 px-6 pb-3"}>
 			<div ref={cardRef} className="relative mx-auto max-w-[760px]">
-				{error && <SendErrorBar error={error} onRetry={() => void handleSend()} />}
+				{error && <SendErrorBar error={error} onRetry={() => handleSendReady()} />}
 				{feedback && !error && (
 					<p className={`mb-1.5 text-xs ${feedback.tone === "warn" ? "text-amber-500" : "text-ink-dim"}`}>
 						{feedback.message}
@@ -518,24 +544,24 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						<input
 							ref={fileInputRef}
 							type="file"
-							accept="image/*"
 							multiple
 							className="hidden"
 							onChange={(e) => {
-								handleFiles(e.target.files);
+								void handleFiles(e.target.files);
 								e.target.value = "";
 							}}
 						/>
 						<button
 							type="button"
 							className="-ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
-							aria-label={t("composer.addImage")}
-							title={!imagesSupported ? t("composer.imageUnsupported") : undefined}
-							disabled={readOnly || !imagesSupported}
+							aria-label="上載檔案或圖片"
+                            title={uploading > 0 ? "檔案上載中" : "上載檔案或圖片"}
+							disabled={readOnly || uploading > 0}
 							onClick={() => fileInputRef.current?.click()}
 						>
 							<PlusIcon size={18} />
 						</button>
+                        {uploading > 0 && <span role="status" className="text-[11px] text-ink-dim">上載中…</span>}
 						<div className={readOnly ? "pointer-events-none opacity-40" : undefined}>
 							<PermissionPicker compact={footerStage >= 2} />
 						</div>
@@ -559,8 +585,8 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 							<button
 								type="button"
 								className="flex h-8 w-8 min-w-8 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink transition-colors hover:bg-ink-2 disabled:opacity-30"
-								disabled={readOnly || !hasContent || sending}
-								onClick={() => void handleSend()}
+								disabled={readOnly || !hasContent || sending || uploading > 0}
+								onClick={() => handleSendReady()}
 								aria-label={t("composer.send")}
 							>
 								<ArrowUpIcon size={20} />

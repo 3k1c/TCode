@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LocalRunner } from "../src/local-runner";
+import { LocalRunner, pickShell } from "../src/local-runner";
 
 let dir: string;
 let runner: LocalRunner;
@@ -43,7 +43,7 @@ describe("git.exec", () => {
 	it("supports separate gitDir / workTree (shadow repo)", async () => {
 		const work = join(dir, "work");
 		const gd = join(dir, "shadow.git");
-		execFileSync("mkdir", ["-p", work]);
+		mkdirSync(work, { recursive: true });
 		writeFileSync(join(work, "a.txt"), "hi");
 		await runner.call({ cmd: "git.exec", cwd: work, gitDir: gd, workTree: work, args: ["init", "-q"] })!.promise;
 		const add = await runner.call({ cmd: "git.exec", cwd: work, gitDir: gd, workTree: work, args: ["add", "-A"] })!.promise;
@@ -52,7 +52,8 @@ describe("git.exec", () => {
 		expect(String(ls.stdout).trim()).toBe("a.txt");
 	});
 	it("times out", async () => {
-		const slow = new LocalRunner({ gitPath: "sleep" });
+		const slow = new LocalRunner({ gitPath: process.platform === "win32"
+			? join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "usr", "bin", "sleep.exe") : "sleep" });
 		const r = await slow.call({ cmd: "git.exec", cwd: dir, args: ["5"], timeoutMs: 150 })!.promise;
 		expect(r.timedOut).toBe(true);
 		expect(r.ok).toBe(false);
@@ -86,7 +87,8 @@ describe("shell.run", () => {
 	it("uses cwd and passes env through", async () => {
 		const { chunks } = await sh('pwd; echo "$FOO"', { env: { ...process.env, FOO: "bar" } as Record<string, string> });
 		const text = chunks.map((c) => c.s).join("");
-		expect(text).toContain(dir.replace(/\/$/, ""));
+		// Git Bash reports MSYS /tmp paths rather than Windows C:\\... paths.
+		expect(text).toContain(dir.split(/[\\/]/).pop());
 		expect(text).toContain("bar");
 	});
 	it("handles multibyte output split across chunks", async () => {
@@ -219,4 +221,20 @@ describe.skipIf(process.platform !== "win32")("Windows shell cancellation", () =
 			`[bool](Get-Process -Id ${childPid} -ErrorAction SilentlyContinue)`], { encoding: "utf8" }).trim();
 		expect(alive).toBe("False");
 	}, 15_000);
+});
+
+describe("git.exec pipe lifecycle", () => {
+	it("does not wait forever when a git child process inherits output pipes", async () => {
+		const shell = pickShell();
+		if (!shell) return;
+		const local = new LocalRunner({ gitPath: shell });
+		try {
+			const start = Date.now();
+			const result = await local.call({ cmd: "git.exec", cwd: dir,
+				args: ["-c", "sleep 8 & echo git-parent-finished"] })!.promise;
+			expect(result.code).toBe(0);
+			expect(String(result.stdout)).toContain("git-parent-finished");
+			expect(Date.now() - start).toBeLessThan(4500);
+		} finally { local.stop(); }
+	});
 });

@@ -14,7 +14,14 @@ import { app } from "electron";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { invokeRegistry } from "./ipc/invoke";
 import { browseProjectFolders, createProjectFolder } from "./project-folders";
+import { handleWebFileUpload } from "./web-file-upload";
 
+type BridgeExtensionHandler = (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+let bridgeExtensionHandler: BridgeExtensionHandler | null = null;
+/** Headless-only APIs can be registered without modifying the desktop core routes. */
+export function setBridgeExtensionHandler(handler: BridgeExtensionHandler): void {
+    bridgeExtensionHandler = handler;
+}
 const WS_PATH = "/api/ws";
 
 const AUTH_CHECK_PATH = "/api/auth-check";
@@ -526,7 +533,38 @@ export class WebBridgeService {
 
 		const server: Server = createServer((req, res) => {
 			const url = new URL(req.url ?? "/", "http://127.0.0.1");
-			if (req.method === "POST" && url.pathname === "/api/project-folders") {
+            if (url.pathname.startsWith("/api/push/") && bridgeExtensionHandler) {
+                let sameOrigin = false;
+                try {
+                    sameOrigin = !!req.headers.origin &&
+                        new URL(req.headers.origin).host.toLowerCase() === req.headers.host?.toLowerCase();
+                } catch {}
+                if (!this.cookieAuthorized(req) ||
+                    (req.method !== "GET" &&
+                     (!sameOrigin || req.headers["x-tcode-push"] !== "1" ||
+                      !/^application\/json(?:;|$)/i.test(req.headers["content-type"] ?? "")))) {
+                    res.writeHead(403, { "cache-control": "no-store" }).end();
+                    return;
+                }
+                bridgeExtensionHandler(req, res, url);
+                return;
+            }
+			if (req.method === "POST" && url.pathname === "/api/files" && process.env.TCODE_HEADLESS === "1") {
+                let sameOrigin = false;
+                try {
+                    sameOrigin = !!req.headers.origin &&
+                        new URL(req.headers.origin).host.toLowerCase() === req.headers.host?.toLowerCase();
+                } catch {}
+                if (!this.cookieAuthorized(req) || !sameOrigin ||
+                    req.headers["x-tcode-upload"] !== "1" ||
+                    !/^application\/octet-stream(?:;|$)/i.test(req.headers["content-type"] ?? "")) {
+                    res.writeHead(403, { "cache-control": "no-store" }).end();
+                    return;
+                }
+                void handleWebFileUpload(req, res, app.getPath("userData"));
+                return;
+            }
+            if (req.method === "POST" && url.pathname === "/api/project-folders") {
 				const headers = {
 					"content-type": "application/json; charset=utf-8",
 					"cache-control": "no-store",

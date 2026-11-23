@@ -54,6 +54,7 @@ await build({
 	external: [
 		"@earendil-works/*",
 		"ws",
+        "playwright-core",
 		"node-pty",
 		"esbuild",
 		"typebox",
@@ -81,6 +82,7 @@ if (existsSync(join(renderer, "index.html"))) {
 
 	// Headless web shortcut / home-screen icon only; leave Electron artwork unchanged.
 	cpSync(join(here, "assets/web-icons"), join(headlessRenderer, "icons"), { recursive: true });
+	cpSync(join(here, "assets/web-push-sw.js"), join(headlessRenderer, "tcode-push-sw.js"));
 	const indexPath = join(headlessRenderer, "index.html");
 	const html = readFileSync(indexPath, "utf8");
 	if (!html.includes("</head>")) throw new Error("headless icon injection: HTML head not found");

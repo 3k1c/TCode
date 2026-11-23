@@ -242,17 +242,45 @@ export class LocalRunner {
 			let truncated = false;
 			let timedOut = false;
 			let settled = false;
+			let exitSeen = false;
+			let exitCode: number | null = null;
+			let drainTimer: NodeJS.Timeout | undefined;
+			let forceTimer: NodeJS.Timeout | undefined;
+			let outputIncomplete = false;
+			const tracker = child.pid && process.platform === "win32" ? new WindowsProcessTree(child.pid) : undefined;
 			const done = (p: Payload) => {
 				if (settled) return;
 				settled = true;
 				if (timer) clearTimeout(timer);
+				if (drainTimer) clearTimeout(drainTimer);
+				if (forceTimer) clearTimeout(forceTimer);
+				tracker?.stopMonitoring();
 				resolve(p);
+			};
+			const finish = (code: number | null) => {
+				const exit = timedOut ? 124 : (code ?? 1);
+				done({
+					ok: exit === 0,
+					code: exit,
+					timedOut,
+					truncated: truncated || outputIncomplete,
+					outputIncomplete,
+					stdout: Buffer.concat(out).toString("utf8"),
+					stderr: Buffer.concat(err).toString("utf8"),
+				});
 			};
 			const timer =
 				req.timeoutMs && req.timeoutMs > 0
 					? setTimeout(() => {
 							timedOut = true;
 							killTree(child, "SIGKILL");
+							void tracker?.terminate();
+							forceTimer = setTimeout(() => {
+								outputIncomplete = true;
+								child.stdout?.destroy();
+								child.stderr?.destroy();
+								finish(exitCode);
+							}, this.opts.killGraceMs + 2000);
 						}, req.timeoutMs)
 					: undefined;
 			child.stdout?.on("data", (b: Buffer) => {
@@ -277,16 +305,20 @@ export class LocalRunner {
 					stderr: e.code === "ENOENT" ? "git: command not found" : e.message,
 				});
 			});
+			child.on("exit", (code) => {
+				if (settled || exitSeen) return;
+				exitSeen = true;
+				exitCode = code;
+				drainTimer = setTimeout(() => {
+					outputIncomplete = true;
+					child.stdout?.destroy();
+					child.stderr?.destroy();
+					finish(exitCode);
+				}, 1500);
+			});
 			child.on("close", (code) => {
-				const exit = timedOut ? 124 : (code ?? 1);
-				done({
-					ok: exit === 0,
-					code: exit,
-					timedOut,
-					truncated,
-					stdout: Buffer.concat(out).toString("utf8"),
-					stderr: Buffer.concat(err).toString("utf8"),
-				});
+				if (!exitSeen) exitCode = code;
+				finish(exitCode);
 			});
 		});
 	}
