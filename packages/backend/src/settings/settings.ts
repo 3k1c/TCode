@@ -104,10 +104,14 @@ export class SettingsService {
 	// Refresh existing OAuth installations too, without contacting every provider or
 	// blocking every subsequent picker request on the network.
 	private async refreshConfiguredOpenAI(runtime: ModelRuntime): Promise<void> {
-		const providers = ["openai", "openai-codex"].filter((id) => {
-			const provider = runtime.getProvider(id);
-			return provider?.auth.oauth && runtime.getProviderAuthStatus(id).source === "stored";
-		});
+		const providers = runtime.getProviders()
+			.filter((provider) =>
+				(provider.id === "openai" || provider.id === "openai-codex") &&
+				provider.auth.oauth &&
+				runtime.getProviderAuthStatus(provider.id).source === "stored",
+			)
+			.map((provider) => provider.id)
+			.sort();
 		if (providers.length === 0) {
 			this.openAIRefreshKey = "";
 			this.openAIRefreshAt = 0;

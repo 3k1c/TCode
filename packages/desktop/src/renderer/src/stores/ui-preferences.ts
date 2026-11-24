@@ -85,7 +85,8 @@ function normalizeSidebarBackground(value: unknown): SidebarBackground {
 }
 
 function applySidebarBackground(value: SidebarBackground): void {
-	document.documentElement.dataset.sidebarBg = value;
+	// The preferences store is also used in non-DOM environments.
+	if (typeof document !== "undefined") document.documentElement.dataset.sidebarBg = value;
 }
 
 function persistPatch(patch: Partial<UiState>): void {

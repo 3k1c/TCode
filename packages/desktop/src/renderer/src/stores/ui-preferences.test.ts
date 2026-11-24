@@ -25,6 +25,21 @@ beforeEach(() => {
 });
 
 describe("useUiPreferencesStore", () => {
+	it("applies the restored sidebar background when a DOM is present", async () => {
+		const dataset: Record<string, string> = {};
+		vi.stubGlobal("document", { documentElement: { dataset, style: { setProperty: vi.fn() } } });
+		try {
+			piMock.loadUiState.mockResolvedValue({ sidebarBackground: "deep" });
+			await useUiPreferencesStore.getState().init();
+			expect(dataset.sidebarBg).toBe("deep");
+			useUiPreferencesStore.getState().setSidebarBackground("soft");
+			expect(dataset.sidebarBg).toBe("soft");
+			expect(piMock.saveUiState).toHaveBeenLastCalledWith({ state: { sidebarBackground: "soft" } });
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
 	describe("左侧栏", () => {
 		it("默认展开 + 顶栏会话默认关（旧版本 ui-state 无这些字段）", async () => {
 			piMock.loadUiState.mockResolvedValue({});
