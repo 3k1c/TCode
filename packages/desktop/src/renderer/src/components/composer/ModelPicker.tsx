@@ -1,5 +1,7 @@
 import type { AvailableModel } from "@tcode/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { anchorOfElement, placeMenu } from "../ui/place-menu";
 import { useActiveModelInfo, useThinkingLevelState } from "../../hooks/use-session-state";
 import { useT } from "../../i18n";
 import { thinkingLevelKey } from "../../lib/thinking";
@@ -9,7 +11,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { filterModelGroups, type ModelGroup } from "./model-filter";
 import { ThinkingSlider } from "./ThinkingSlider";
 
-const LIST_MAX_HEIGHT = "min(248px, calc(100vh - 265px))";
+const LIST_MAX_HEIGHT = "min(248px, max(72px, calc(100dvh - 190px)))";
 
 function modelKey(m: AvailableModel): string {
 	return `${m.provider}/${m.id}`;
@@ -29,6 +31,38 @@ export function ModelPicker({ compact = false }: { compact?: boolean }) {
 
 	const [activeKey, setActiveKey] = useState<string | null>(null);
 	const ref = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const popupRef = useRef<HTMLDivElement>(null);
+	const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+
+	// Position the portal against the viewport rather than the clipped composer footer.
+	useLayoutEffect(() => {
+		if (!open) {
+			setPosition(null);
+			return;
+		}
+		const trigger = triggerRef.current;
+		const popup = popupRef.current;
+		if (!trigger || !popup) return;
+		const measure = () => {
+			const { width, height } = popup.getBoundingClientRect();
+			const next = placeMenu(anchorOfElement(trigger), { width, height },
+				{ width: window.innerWidth, height: window.innerHeight },
+				{ align: "end", gap: 6, margin: 8 });
+			setPosition((previous) => previous?.x === next.x && previous?.y === next.y ? previous : next);
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(trigger);
+		observer.observe(popup);
+		window.addEventListener("resize", measure);
+		window.addEventListener("scroll", measure, true);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+			window.removeEventListener("scroll", measure, true);
+		};
+	}, [open]);
 	const listRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 
@@ -43,7 +77,7 @@ export function ModelPicker({ compact = false }: { compact?: boolean }) {
 	useEffect(() => {
 		if (!open) return;
 		const onPointerDown = (e: PointerEvent) => {
-			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+			if (!ref.current?.contains(e.target as Node) && !popupRef.current?.contains(e.target as Node)) setOpen(false);
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") setOpen(false);
@@ -113,13 +147,17 @@ export function ModelPicker({ compact = false }: { compact?: boolean }) {
 		<div ref={ref} className="relative">
 			<button
 				type="button"
-				className="flex max-w-[208px] items-center gap-1 rounded-full px-2.5 py-1 text-xs text-ink-dim transition-colors hover:bg-hover hover:text-ink"
+				ref={triggerRef}
+				data-model-picker-trigger=""
+				aria-haspopup="dialog"
+				aria-expanded={open}
+				className="flex w-full min-w-0 max-w-[208px] items-center gap-1 rounded-full px-2.5 py-1 text-xs text-ink-dim transition-colors hover:bg-hover hover:text-ink"
 				onClick={(e) => {
 					openByKeyboard.current = e.detail === 0;
 					setOpen((v) => !v);
 				}}
 			>
-				<span data-model-name="" className="truncate">
+				<span data-model-name="" className="min-w-0 truncate">
 					{label}
 				</span>
 				<span
@@ -134,13 +172,18 @@ export function ModelPicker({ compact = false }: { compact?: boolean }) {
 				>
 					{t(thinkingLevelKey(display))}
 				</span>
-				<ChevronDownIcon className={open ? "rotate-180 transition-transform" : "transition-transform"} />
+				<ChevronDownIcon className={open ? "shrink-0 rotate-180 transition-transform" : "shrink-0 transition-transform"} />
 			</button>
 
-			{open && (
+			{open && createPortal(
 				<div
+					ref={popupRef}
 					data-composer-overlay=""
-					className="absolute right-0 bottom-full z-30 mb-1 w-72 rounded-xl bg-surface p-1 shadow-pop"
+					data-model-picker-popup=""
+					role="dialog"
+					aria-label={t("composer.modelSearchPlaceholder")}
+					className="fixed z-50 w-72 max-w-[calc(100vw-16px)] rounded-xl border border-border bg-surface p-1 shadow-pop"
+					style={{ left: position?.x ?? 0, top: position?.y ?? 0, visibility: position ? "visible" : "hidden" }}
 				>
 					<div className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 pr-3">
 						<SearchIcon size={13} className="shrink-0 text-ink-faint" />
@@ -208,7 +251,8 @@ export function ModelPicker({ compact = false }: { compact?: boolean }) {
 					<div className="fade-rule mb-1" />
 
 					<ThinkingSlider level={display} thinkingLevels={current?.thinkingLevels} />
-				</div>
+				</div>,
+				document.body,
 			)}
 		</div>
 	);

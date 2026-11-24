@@ -26,7 +26,7 @@ export function SettingsNav() {
 	const setCategory = useSettingsStore((s) => s.setCategory);
 	const setOpen = useSettingsStore((s) => s.setOpen);
 
-	const collapsed = useUiPreferencesStore((s) => s.sidebarCollapsed);
+	const collapsed = useUiPreferencesStore((s) => s.sidebarCollapsed || s.autoCollapsed);
 	const asideRef = useRef<HTMLElement | null>(null);
 	useSidebarFill(asideRef, false);
 

@@ -568,7 +568,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
 						<div data-footer-spacer="" className="min-w-0 flex-1" />
 						<ContextRing />
 						<div className="min-w-0 shrink overflow-hidden"><RegionHost region={UI_REGIONS.ComposerFooter} /></div>
-						<div className={`min-w-0 max-w-[min(42vw,170px)] shrink overflow-hidden ${readOnly ? "pointer-events-none opacity-40" : ""}`}>
+						<div className={`min-w-0 max-w-[min(42vw,170px)] shrink ${readOnly ? "pointer-events-none opacity-40" : ""}`}>
 							<ModelPicker compact={footerStage >= 1} />
 						</div>
 						{showStop && (

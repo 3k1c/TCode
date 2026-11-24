@@ -36,7 +36,7 @@ import { useSessionsStore } from "../../stores/sessions";
 import { useSettingsStore } from "../../stores/settings";
 import { useTranscriptStore } from "../../stores/transcript";
 import { selectSidebarHidden, useUiPreferencesStore } from "../../stores/ui-preferences";
-import { CloseIcon, PanelLeftIcon, PanelRightIcon, PinIcon } from "../icons";
+import { ArrowLeftIcon, CloseIcon, PanelLeftIcon, PanelRightIcon, PinIcon } from "../icons";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import type { MenuAnchor } from "../ui/place-menu";
 import { RenamePopover } from "./RenamePopover";
@@ -391,14 +391,15 @@ export function SessionTabBar() {
 		>
 			<button
 				type="button"
-				data-sidebar-toggle=""
+				data-sidebar-toggle={settingsOpen ? undefined : ""}
+				data-settings-back={settingsOpen ? "" : undefined}
 				className={`no-drag shrink-0 rounded-lg p-1.5 transition-colors ${
 					sidebarCollapsed ? "text-ink-dim hover:bg-hover hover:text-ink" : "bg-hover text-ink"
 				}`}
-				onClick={toggleSidebarCollapsed}
-				aria-label={sidebarCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+				onClick={settingsOpen ? () => setSettingsOpen(false) : toggleSidebarCollapsed}
+				aria-label={settingsOpen ? t("settings.backToChat") : sidebarCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
 			>
-				<PanelLeftIcon size={16} />
+				{settingsOpen ? <ArrowLeftIcon size={17} /> : <PanelLeftIcon size={16} />}
 			</button>
 
 			<div

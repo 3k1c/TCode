@@ -164,11 +164,11 @@ export default function App() {
 						data-chat-col
 						className="relative flex min-w-0 flex-1 flex-col"
 						style={{
-							minWidth: chatFloorPx || undefined,
+							minWidth: settingsOpen ? 0 : chatFloorPx || undefined,
 
 							flexGrow: chatPinPx === null ? undefined : 1,
-							flexBasis: chatPinPx === null ? undefined : chatPinPx + "px",
-							flexShrink: chatPinPx === null ? undefined : 999,
+							flexBasis: settingsOpen || chatPinPx === null ? undefined : chatPinPx + "px",
+							flexShrink: settingsOpen || chatPinPx === null ? undefined : 999,
 						}}
 					>
 						{settingsOpen ? (
@@ -193,7 +193,7 @@ export default function App() {
 						)}
 					</div>
 
-					<SidePaneDock />
+					{!settingsOpen && <SidePaneDock />}
 				</div>
 			</div>
 
