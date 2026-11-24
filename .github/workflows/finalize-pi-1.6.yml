@@ -26,7 +26,8 @@ jobs:
         run: |
           test "$(gh run view 45407222649 --json conclusion --jq .conclusion)" = success
           test "$(gh run view 45407222649 --json headSha --jq .headSha)" = 0a532e73f93d55be67c80925cdbd25ba21dd1481
-          test "$(git rev-parse HEAD^)" = 0a532e73f93d55be67c80925cdbd25ba21dd1481
+          git merge-base --is-ancestor 0a532e73f93d55be67c80925cdbd25ba21dd1481 HEAD
+          test "$(git diff --name-only 0a532e73f93d55be67c80925cdbd25ba21dd1481 HEAD)" = ".github/workflows/finalize-pi-1.6.yml"
           git fetch origin headless-nas
           test "$(git rev-parse origin/headless-nas)" = 310a1993e076a95205429bc56f2f9001add6c31f
       - uses: actions/download-artifact@v4
