@@ -259,6 +259,7 @@ export function SidebarFooter() {
 					<button
 						type="button"
 						className="flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-1 text-left hover:bg-hover"
+						data-settings-open=""
 						onClick={() => setSettingsOpen(true)}
 					>
 						<GearIcon size={14} />
@@ -331,6 +332,7 @@ export function SidebarFooter() {
 					<button
 						type="button"
 						className="flex h-8 w-full items-center gap-[9px] rounded-full px-3 text-[13.5px] text-ink-dim transition-colors hover:bg-hover hover:text-ink"
+						data-settings-open=""
 						onClick={() => {
 							setOpen(false);
 							setQrOpen(false);

@@ -32,7 +32,7 @@ export function SettingsPage() {
 			<div className={`shrink-0 px-4 pb-2 ${sidebarHidden ? "" : "min-[641px]:hidden"}`}>
 				<select
 					data-settings-category=""
-					aria-label={t("settings.category.models")}
+					aria-label={t("sidebar.settings")}
 					className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink"
 					value={category}
 					onChange={(event) => setCategory(event.target.value as typeof category)}

@@ -51,6 +51,13 @@ export default function App() {
 		return !entry || (entry.messages.length === 0 && !entry.streaming);
 	});
 	const settingsOpen = useSettingsStore((s) => s.open);
+	useEffect(() => {
+		if (!settingsOpen || window.innerWidth > 640) return;
+		const preferences = useUiPreferencesStore.getState();
+		// Close the temporary phone drawer without changing the persisted desktop preference.
+		preferences.setAutoCollapsed(true);
+		preferences.setSidebarFloating(false);
+	}, [settingsOpen]);
 
 	const prevSessionRef = useRef<string | null>(null);
 	useEffect(() => {

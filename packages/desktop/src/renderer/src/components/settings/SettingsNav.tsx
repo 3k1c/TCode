@@ -73,6 +73,7 @@ export function SettingsNav() {
 							<button
 								key={id}
 								type="button"
+								data-settings-category-link={id}
 								className={itemClass(category === id)}
 								onClick={() => setCategory(id)}
 							>

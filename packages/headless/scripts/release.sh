@@ -86,8 +86,9 @@ fi
 
 # ---------------------------------------------------------------- test
 if step test; then
-	log "unit tests (headless)"
-	npm test -w packages/headless || die 4 "headless unit tests failed"
+	log "typecheck and all workspace tests"
+	npm run typecheck || die 4 "typecheck failed"
+	npm test || die 4 "workspace tests failed"
 fi
 
 # ---------------------------------------------------------------- scan
@@ -115,6 +116,15 @@ fi
 if step smoke; then
 	log "smoke test against a fresh server on port $SMOKE_PORT"
 	TMP="$(mktemp -d)"
+	UI_SMOKE=0
+	if [[ "${CI:-}" == "true" || "${TCODE_UI_SMOKE:-0}" == "1" ]]; then
+		UI_SMOKE=1
+		npx --no-install playwright-core install --with-deps chromium
+		mkdir -p "$TMP/home/.pi/agent"
+		# Isolated test-only provider. No real credentials or model requests.
+		printf '%s\n' '{"providers":{"ui-smoke":{"name":"UI Smoke","baseUrl":"http://127.0.0.1:9/v1","api":"openai-completions","models":[{"id":"ui-model-a","name":"UI Model A","contextWindow":8192,"maxTokens":1024},{"id":"ui-model-b","name":"UI Model B","contextWindow":8192,"maxTokens":1024}]}}}' >"$TMP/home/.pi/agent/models.json"
+		printf '%s\n' '{"ui-smoke":{"type":"api_key","key":"fixture-not-a-real-key"}}' >"$TMP/home/.pi/agent/auth.json"
+	fi
 	TOKEN="smoke-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 	HOME="$TMP/home" TCODE_DATA_DIR="$TMP/data" PI_CODING_AGENT_DIR="$TMP/home/.pi/agent" \
 		TCODE_PORT="$SMOKE_PORT" TCODE_TOKEN="$TOKEN" \
@@ -125,6 +135,12 @@ if step smoke; then
 		kill -0 "$SRV" 2>/dev/null || { cat "$TMP/server.log"; die 4 "server exited during startup"; }
 		sleep 1
 	done
+	if [[ "$UI_SMOKE" == 1 ]]; then
+		if ! TCODE_TOKEN="$TOKEN" TCODE_URL="http://127.0.0.1:$SMOKE_PORT" node "$HL/scripts/smoke-ui.mjs"; then
+			tail -40 "$TMP/server.log"
+			die 4 "browser UI smoke test failed"
+		fi
+	fi
 	if ! TCODE_TOKEN="$TOKEN" TCODE_URL="http://127.0.0.1:$SMOKE_PORT" node "$HL/scripts/smoke.mjs"; then
 		tail -40 "$TMP/server.log"
 		die 4 "smoke test failed"
