@@ -18,8 +18,8 @@
 		"start": "electron-vite preview"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "1.4.0",
-		"@earendil-works/pi-coding-agent": "1.4.0",
+		"@earendil-works/pi-ai": "1.6.0",
+		"@earendil-works/pi-coding-agent": "1.6.0",
 		"@tcode/backend": "*",
 		"@tcode/shared": "*",
 		"esbuild": "0.25.12",
