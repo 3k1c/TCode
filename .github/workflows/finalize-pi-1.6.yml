@@ -1,0 +1,77 @@
+name: Finalize validated Pi 1.6 release
+on:
+  push:
+    branches: [release/pi-1.6.0]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: headless-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/release/pi-1.6.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check the validated revision and production baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh run view 45407222649 --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 45407222649 --json headSha --jq .headSha)" = 0a532e73f93d55be67c80925cdbd25ba21dd1481
+          test "$(git rev-parse HEAD^)" = 0a532e73f93d55be67c80925cdbd25ba21dd1481
+          git fetch origin headless-nas
+          test "$(git rev-parse origin/headless-nas)" = 310a1993e076a95205429bc56f2f9001add6c31f
+      - uses: actions/download-artifact@v4
+        with:
+          name: pi-1.6-lockfile
+          run-id: 45407222649
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/validated-lock
+      - name: Pin verified SDK manifests and lockfile
+        run: |
+          echo '336fa60bd850c7e6e7726dc0cebb4b2bffd67c4b94138232788825decef43882  '${RUNNER_TEMP}'/validated-lock/package-lock.json' | sha256sum -c -
+          cp "$RUNNER_TEMP/validated-lock/package-lock.json" package-lock.json
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          for (const path of ['packages/backend/package.json','packages/desktop/package.json','packages/shared/package.json','packages/headless/docker/runtime-package.json']) {
+            const pkg=JSON.parse(readFileSync(path,'utf8'));
+            for (const key of ['dependencies','devDependencies','optionalDependencies']) {
+              for (const name of ['@earendil-works/pi-ai','@earendil-works/pi-coding-agent']) {
+                if (pkg[key]?.[name]) pkg[key][name]='1.6.0';
+              }
+            }
+            writeFileSync(path,JSON.stringify(pkg,null,'\t')+'\n');
+          }
+          const lock=JSON.parse(readFileSync('package-lock.json','utf8'));
+          for (const name of ['pi-ai','pi-coding-agent']) {
+            if (lock.packages['node_modules/@earendil-works/'+name]?.version !== '1.6.0') throw new Error('Wrong validated SDK version: '+name);
+          }
+          NODE
+          git add package-lock.json packages/backend/package.json packages/desktop/package.json packages/shared/package.json packages/headless/docker/runtime-package.json
+          git -c user.name='headless-release[bot]' -c user.email='headless-release@users.noreply.github.com' commit -m 'Pin Pi SDK 1.6.0 and exact validated npm lockfile'
+      - name: Install exact dependencies and run release gates
+        run: |
+          ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          STEPS=build,scan,smoke,package packages/headless/scripts/release.sh
+          node -e "if(require('./release/latest.json').pi !== '1.6.0') process.exit(1)"
+      - name: Synchronize production and publish tested Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin headless-nas
+          test "$(git rev-parse origin/headless-nas)" = 310a1993e076a95205429bc56f2f9001add6c31f
+          git merge-base --is-ancestor origin/headless-nas HEAD
+          version=$(node -p "require('./release/latest.json').version")
+          git push origin HEAD:refs/heads/headless-nas
+          gh release create "v$version" release/tcode-headless-win.zip release/tcode-headless-win.zip.sha256 release/latest.json --title "TCode headless $version (Pi 1.6.0)" --notes-file release/notes.md --target "$(git rev-parse HEAD)" --latest
+          echo "Published v$version" >> "$GITHUB_STEP_SUMMARY"
