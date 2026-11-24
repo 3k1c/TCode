@@ -39,6 +39,15 @@ jobs:
       - name: Build, scan and smoke-test without publishing
         run: STEPS=build,scan,smoke,package packages/headless/scripts/release.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: pi-1.6-validated-lockfile
+          name: pi-1.6-lockfile
           path: package-lock.json
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: pi-1.6-windows-candidate
+          path: |
+            release/tcode-headless-win.zip
+            release/tcode-headless-win.zip.sha256
+            release/latest.json

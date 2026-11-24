@@ -5,3 +5,16 @@ raw.githubusercontent.com
 api.github.com
 pi.dev
 opencode.ai
+
+# Reviewed Web Push dependencies (web-push 3.6.7, src/web-push-lib.js).
+# FCM is used for subscribed-device delivery. The legacy GCM hostname is only
+# recognized by the dependency; HeadlessWebPush does not accept GCM subscriptions.
+fcm.googleapis.com
+android.googleapis.com
+
+# Source comments in debug 4.4.3, src/browser.js (documentation references).
+developer.mozilla.org
+stackoverflow.com
+
+# Application's own VAPID subject, not an additional delivery endpoint.
+tcode.kovami.app
