@@ -1224,13 +1224,15 @@ export class PiBackend {
 	private async resolveRequestedModel(runtime: ModelRuntime, provider: string, modelId: string) {
 		let model = runtime.getModel(provider, modelId);
 		if (provider === "openai" || provider === "openai-codex") {
-			const available = () =>
-				runtime.getAvailableSnapshot().some((candidate) => candidate.provider === provider && candidate.id === modelId);
-			if (!model || !available()) {
+			const available = async () =>
+				(await runtime.getAvailable(provider, { signal: AbortSignal.timeout(15_000) }))
+					.find((candidate) => candidate.provider === provider && candidate.id === modelId);
+			model = await available();
+			if (!model) {
 				await runtime.refresh({ providers: [provider], allowNetwork: false, signal: AbortSignal.timeout(15_000) });
-				model = runtime.getModel(provider, modelId);
+				model = await available();
 			}
-			if (!available()) throw new Error(`Model unavailable for this account: ${provider}/${modelId}`);
+			if (!model) throw new Error(`Model unavailable for this account: ${provider}/${modelId}`);
 		}
 		if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
 		return model;
@@ -1584,6 +1586,20 @@ export class PiBackend {
 			this.modelPrefs.getPrefs(),
 			this.getModelRuntime(),
 		]);
+		// Scoped Pi refreshes may temporarily expose the complete provider snapshot.
+		// Query each OpenAI provider's credential-filtered availability explicitly.
+		const availableOpenAI = new Map<string, Set<string>>();
+		await Promise.all(providers.filter((p) =>
+			p.configured && (p.id === "openai" || p.id === "openai-codex"),
+		).map(async (p) => {
+			try {
+				const models = await runtime.getAvailable(p.id, { signal: AbortSignal.timeout(15_000) });
+				availableOpenAI.set(p.id, new Set(models.map((m) => m.id)));
+			} catch {
+				availableOpenAI.set(p.id, new Set());
+				log.warn("OpenAI model availability check failed", { provider: p.id });
+			}
+		}));
 		return providers.flatMap((provider) =>
 			provider.configured
 				? provider.models
@@ -1592,9 +1608,7 @@ export class PiBackend {
 					.filter((model) =>
 						provider.id !== "openai" && provider.id !== "openai-codex"
 							? true
-							: runtime.getAvailableSnapshot().some(
-									(candidate) => candidate.provider === provider.id && candidate.id === model.id,
-								),
+							: availableOpenAI.get(provider.id)?.has(model.id) === true,
 					)
 						.map((model) => {
 							let thinkingLevels: string[] | undefined;

@@ -30,6 +30,28 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 import { SettingsService } from "../src/settings/settings";
 
+describe("SettingsService OpenAI catalog refresh", () => {
+	it("refreshes an existing OpenAI login without repeatedly contacting the remote catalog", async () => {
+		const provider = { id: "openai", name: "OpenAI", auth: { oauth: {} } };
+		const refresh = vi.fn(async (_options: unknown) => ({ aborted: false, errors: new Map() }));
+		const runtime = {
+			refresh,
+			getProvider: (id: string) => id === provider.id ? provider : undefined,
+			getProviders: () => [provider],
+			getProviderAuthStatus: () => ({ configured: true, source: "stored" }),
+			getRegisteredNativeProvider: () => undefined,
+			getModels: () => [],
+		} as unknown as ModelRuntime;
+		const settings = new SettingsService(async () => runtime);
+		await settings.listProviders();
+		await settings.listProviders();
+		expect(refresh.mock.calls.filter(([options]) => (options as { allowNetwork: boolean }).allowNetwork)).toHaveLength(1);
+		expect(refresh).toHaveBeenCalledWith(expect.objectContaining({
+			providers: ["openai"], force: true, allowNetwork: true, signal: expect.any(AbortSignal),
+		}));
+	});
+});
+
 describe("SettingsService provider mutations", () => {
 	beforeEach(() => files.clear());
 

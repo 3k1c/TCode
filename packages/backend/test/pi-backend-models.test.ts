@@ -50,7 +50,7 @@ describe("PiBackend.listModels", () => {
 		vi.spyOn(backend as unknown as { getModelRuntime: () => Promise<ModelRuntime> }, "getModelRuntime")
 			.mockResolvedValue({
 				getModel: () => allowed,
-				getAvailableSnapshot: () => [allowed],
+				getAvailable: async () => [allowed],
 			} as unknown as ModelRuntime);
 		expect(await backend.listModels()).toMatchObject([{ provider: "openai", id: "allowed" }]);
 	});

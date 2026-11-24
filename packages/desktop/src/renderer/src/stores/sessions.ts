@@ -846,7 +846,10 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
 			const clampedLevel = rawLevel;
 
 			const draft = get().newSessionDraft;
-			const draftModel = draft?.modelResolved ? draft.model : nextLastUsedModel;
+			const draftModel = draft?.modelResolved && draft.model &&
+				models.some((m) => m.provider === draft.model?.provider && m.id === draft.model?.modelId)
+				? draft.model
+				: nextLastUsedModel;
 			set({
 				models,
 				lastUsedModel: nextLastUsedModel,
