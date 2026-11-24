@@ -32,7 +32,6 @@ import { UI_REGIONS, UI_SLOTS } from "./plugins/slots";
 import { initBrowserControlBridge } from "./sidepane/browser-control-bridge";
 import { SidePaneDock } from "./sidepane/SidePaneDock";
 import { dockTakesSlack, useSidePaneStore } from "./sidepane/store";
-import { finishSplash } from "./splash";
 import { initAppQuit } from "./stores/app-quit";
 import { useChatLayoutStore } from "./stores/chat-layout";
 import { useProjectsStore } from "./stores/projects";
@@ -120,7 +119,7 @@ export default function App() {
 		useSessionsStore.getState().activateNewSessionDraft(lastCwd ?? undefined);
 		void backfillStartupCwd(projectsReady);
 
-		void Promise.allSettled([useSessionsStore.getState().loadModels()]).then(() => finishSplash());
+		void Promise.allSettled([useSessionsStore.getState().loadModels()]);
 
 		void restoreSessionWorkspace();
 

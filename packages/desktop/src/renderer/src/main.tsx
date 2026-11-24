@@ -6,15 +6,12 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { QuitConfirmDialog } from "./components/ui/QuitConfirmDialog";
 import "./plugins/host-api";
 import "./lib/zoom-guard";
-import { initSplash } from "./splash";
 import { useThemeStore } from "./stores/theme";
 import { useUiPreferencesStore } from "./stores/ui-preferences";
 import "./styles/globals.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("root element not found");
-
-initSplash();
 
 void getPi()
 	.awaitAppBoot()
