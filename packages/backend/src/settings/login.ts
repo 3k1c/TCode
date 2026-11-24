@@ -81,6 +81,23 @@ export class LoginService {
 				},
 				this.deps.getDeviceId ? { getDeviceId: this.deps.getDeviceId } : undefined,
 			);
+			// Pi login synchronizes the local snapshot, not the remote account catalog.
+			if (method === "oauth" && (providerId === "openai" || providerId === "openai-codex")) {
+				try {
+					const result = await runtime.refresh({
+						providers: [providerId],
+						allowNetwork: true,
+						force: true,
+						signal: AbortSignal.any([login.abort.signal, AbortSignal.timeout(15_000)]),
+					});
+					if (result.aborted || result.errors.has(providerId)) {
+						console.warn("OpenAI model catalog refresh incomplete; using the local catalog.");
+					}
+				} catch {
+					// Credentials are already committed. Do not report a failed login or discard them.
+					console.warn("OpenAI model catalog refresh failed; using the local catalog.");
+				}
+			}
 			return { ok: true };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

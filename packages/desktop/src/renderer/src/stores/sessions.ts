@@ -834,7 +834,10 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
 				)
 					? saved.lastUsedModel
 					: null;
-			const current = get().lastUsedModel;
+			const previous = get().lastUsedModel;
+			const current = previous && models.some((m) => m.provider === previous.provider && m.id === previous.modelId)
+				? previous
+				: null;
 			const fallback = models.find((m) => m.authed) ?? models[0];
 			const nextLastUsedModel =
 				savedModel ?? current ?? (fallback ? { provider: fallback.provider, modelId: fallback.id } : null);

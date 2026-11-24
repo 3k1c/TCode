@@ -37,6 +37,24 @@ function textOnlyModel(id: string): Model<any> {
 }
 
 describe("PiBackend.listModels", () => {
+	it("only advertises OpenAI chat models available to the authenticated account", async () => {
+		const backend = new PiBackend({ projectTrust: false });
+		const allowed = { ...textOnlyModel("allowed"), provider: "openai" };
+		vi.spyOn(backend.settings, "listProviders").mockResolvedValue([{
+			id: "openai", name: "OpenAI", configured: true, custom: false,
+			models: [{ id: "allowed", name: "Allowed" }, { id: "denied", name: "Denied" }],
+		}]);
+		Object.defineProperty(backend, "modelPrefs", {
+			value: { getPrefs: async () => ({ hiddenModels: {}, subagentModels: {} }) },
+		});
+		vi.spyOn(backend as unknown as { getModelRuntime: () => Promise<ModelRuntime> }, "getModelRuntime")
+			.mockResolvedValue({
+				getModel: () => allowed,
+				getAvailableSnapshot: () => [allowed],
+			} as unknown as ModelRuntime);
+		expect(await backend.listModels()).toMatchObject([{ provider: "openai", id: "allowed" }]);
+	});
+
 	it("在唯一出口过滤隐藏模型", async () => {
 		const backend = new PiBackend({ projectTrust: false });
 		vi.spyOn(backend.settings, "listProviders").mockResolvedValue(providers);

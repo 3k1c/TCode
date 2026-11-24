@@ -17,12 +17,14 @@ function makeService(
 	providers: ReturnType<typeof makeProvider>[],
 	runtimeLogin?: (providerId: string, type: string, interaction: unknown) => Promise<unknown>,
 ) {
+	const refresh = vi.fn(async (_options: unknown) => ({ aborted: false, errors: new Map<string, Error>() }));
 	const events = [] as LoginEventPayload[];
 	const captured = [] as { providerId: string; type: string }[];
 	const service = new LoginService({
 		getRuntime: async () =>
 			({
 				getProvider: (id: string) => providers.find((p) => p.id === id),
+				refresh,
 				login: vi.fn(async (providerId: string, type: string, interaction: unknown) => {
 					captured.push({ providerId, type });
 					return runtimeLogin ? runtimeLogin(providerId, type, interaction) : { type: "api_key", key: "k" };
@@ -30,7 +32,7 @@ function makeService(
 			}) as never,
 		send: (payload) => events.push(payload),
 	} as LoginServiceDeps);
-	return { service, events, captured };
+	return { service, events, captured, refresh };
 }
 
 describe("filterAuthSelectOptions", () => {
@@ -59,6 +61,24 @@ describe("filterAuthSelectOptions", () => {
 });
 
 describe("LoginService.startLogin", () => {
+	it("refreshes the account catalog after OpenAI OAuth without refreshing unrelated providers", async () => {
+		const { service, refresh } = makeService([
+			makeProvider({ id: "openai", name: "OpenAI", oauth: {} }),
+		]);
+		await expect(service.startLogin("oauth", "openai")).resolves.toEqual({ ok: true });
+		expect(refresh).toHaveBeenCalledWith(expect.objectContaining({
+			providers: ["openai"], allowNetwork: true, force: true, signal: expect.any(AbortSignal),
+		}));
+	});
+
+	it("preserves successful OAuth if the remote catalog is unavailable", async () => {
+		const { service, refresh } = makeService([
+			makeProvider({ id: "openai-codex", name: "OpenAI Codex", oauth: {} }),
+		]);
+		refresh.mockRejectedValueOnce(new Error("offline"));
+		await expect(service.startLogin("oauth-offline", "openai-codex")).resolves.toEqual({ ok: true });
+	});
+
 	it("完整流程：auth_url 事件转发 + manual_code 提示应答 + 成功收尾", async () => {
 		const { service, events, captured } = makeService(
 			[makeProvider({ id: "anthropic", name: "Anthropic", oauth: { loginLabel: "Sign in" } })],

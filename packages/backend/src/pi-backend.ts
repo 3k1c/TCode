@@ -952,7 +952,9 @@ export class PiBackend {
 		const runtime = await this.getModelRuntime();
 		const cwd = options.cwd || this.options.defaultCwd || process.cwd();
 		const model =
-			options.provider && options.modelId ? runtime.getModel(options.provider, options.modelId) : undefined;
+			options.provider && options.modelId
+				? await this.resolveRequestedModel(runtime, options.provider, options.modelId)
+				: undefined;
 		const session = await this.wireSession(cwd, undefined, async (deps) => {
 			const { settingsManager, resourceLoader } = await deps.load();
 			return createAgentSession({
@@ -1219,11 +1221,25 @@ export class PiBackend {
 		return [...entry.session.getFollowUpMessages()];
 	}
 
+	private async resolveRequestedModel(runtime: ModelRuntime, provider: string, modelId: string) {
+		let model = runtime.getModel(provider, modelId);
+		if (provider === "openai" || provider === "openai-codex") {
+			const available = () =>
+				runtime.getAvailableSnapshot().some((candidate) => candidate.provider === provider && candidate.id === modelId);
+			if (!model || !available()) {
+				await runtime.refresh({ providers: [provider], allowNetwork: false, signal: AbortSignal.timeout(15_000) });
+				model = runtime.getModel(provider, modelId);
+			}
+			if (!available()) throw new Error(`Model unavailable for this account: ${provider}/${modelId}`);
+		}
+		if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
+		return model;
+	}
+
 	async setModel(sessionId: string, provider: string, modelId: string): Promise<string> {
 		const entry = this.requireWritable(sessionId);
 		const runtime = await this.getModelRuntime();
-		const model = runtime.getModel(provider, modelId);
-		if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
+		const model = await this.resolveRequestedModel(runtime, provider, modelId);
 		await entry.session.setModel(model);
 		this.syncManagedContextWindow(entry.session);
 		return entry.session.thinkingLevel;
@@ -1572,6 +1588,14 @@ export class PiBackend {
 			provider.configured
 				? provider.models
 						.filter((model) => !prefs.hiddenModels[provider.id]?.includes(model.id))
+					// The complete provider catalog is not the account's available model set.
+					.filter((model) =>
+						provider.id !== "openai" && provider.id !== "openai-codex"
+							? true
+							: runtime.getAvailableSnapshot().some(
+									(candidate) => candidate.provider === provider.id && candidate.id === model.id,
+								),
+					)
 						.map((model) => {
 							let thinkingLevels: string[] | undefined;
 							let imageInput: boolean | undefined;

@@ -64,6 +64,10 @@ async function readJsonFile(path: string): Promise<JsonObject> {
 }
 
 export class SettingsService {
+	private openAIRefreshAt = 0;
+	private openAIRefreshInFlight: Promise<void> | undefined;
+	private openAIRefreshKey = "";
+
 	constructor(private readonly getRuntime: () => Promise<ModelRuntime>) {}
 
 	private get authPath(): string {
@@ -97,6 +101,45 @@ export class SettingsService {
 		return map;
 	}
 
+	// Refresh existing OAuth installations too, without contacting every provider or
+	// blocking every subsequent picker request on the network.
+	private async refreshConfiguredOpenAI(runtime: ModelRuntime): Promise<void> {
+		const providers = ["openai", "openai-codex"].filter((id) => {
+			const provider = runtime.getProvider(id);
+			return provider?.auth.oauth && runtime.getProviderAuthStatus(id).source === "stored";
+		});
+		if (providers.length === 0) {
+			this.openAIRefreshKey = "";
+			this.openAIRefreshAt = 0;
+			return;
+		}
+		const key = providers.join(",");
+		if (this.openAIRefreshInFlight) return this.openAIRefreshInFlight;
+		if (key === this.openAIRefreshKey && Date.now() - this.openAIRefreshAt < 300_000) return;
+		this.openAIRefreshKey = key;
+		this.openAIRefreshAt = Date.now();
+		this.openAIRefreshInFlight = (async () => {
+			try {
+				const result = await runtime.refresh({
+					providers,
+					allowNetwork: true,
+					force: true,
+					signal: AbortSignal.timeout(NETWORK_REFRESH_TIMEOUT_MS),
+				});
+				if (result.aborted || result.errors.size > 0) {
+					console.warn("OpenAI model catalog refresh incomplete; using the local catalog.");
+				}
+			} catch {
+				console.warn("OpenAI model catalog refresh failed; using the local catalog.");
+			}
+		})();
+		try {
+			await this.openAIRefreshInFlight;
+		} finally {
+			this.openAIRefreshInFlight = undefined;
+		}
+	}
+
 	async listProviders(options?: ListProvidersOptions): Promise<ProviderInfo[]> {
 		const runtime = await this.getRuntime();
 		if (options?.forceNetwork) {
@@ -108,6 +151,7 @@ export class SettingsService {
 			if (result.aborted) throw new Error("刷新模型目录超时，请检查网络后重试");
 		} else {
 			await runtime.refresh({ allowNetwork: false });
+			await this.refreshConfiguredOpenAI(runtime);
 		}
 		const customs = await this.readCustomProviders();
 		const customIds = new Set(Object.keys(customs));
