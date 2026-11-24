@@ -1,0 +1,44 @@
+name: Validate Pi 1.6 upgrade
+on:
+  push:
+    branches: [fix/openai-oauth-model-catalog]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve Pi 1.6 in isolated checkout
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          for (const path of ['packages/backend/package.json','packages/desktop/package.json','packages/shared/package.json','packages/headless/docker/runtime-package.json']) {
+            const pkg=JSON.parse(readFileSync(path,'utf8'));
+            for (const key of ['dependencies','devDependencies','optionalDependencies']) {
+              for (const name of ['@earendil-works/pi-ai','@earendil-works/pi-coding-agent']) {
+                if (pkg[key]?.[name]) pkg[key][name]='1.6.0';
+              }
+            }
+            writeFileSync(path,JSON.stringify(pkg,null,'\t')+'\n');
+          }
+          NODE
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
+      - name: Check SDK versions
+        run: npm ls @earendil-works/pi-ai @earendil-works/pi-coding-agent
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Regression tests
+        run: npm test
+      - name: Build, scan and smoke-test without publishing
+        run: STEPS=build,scan,smoke,package packages/headless/scripts/release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-1.6-validated-lockfile
+          path: package-lock.json
