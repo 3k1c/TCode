@@ -200,7 +200,7 @@ export default function App() {
 						)}
 					</div>
 
-					{!settingsOpen && <SidePaneDock />}
+					<SidePaneDock />
 				</div>
 			</div>
 
