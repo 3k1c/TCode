@@ -12,6 +12,8 @@ import { CopyActionIcon, TextSelectIcon, UndoIcon } from "../icons";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { anchorOfElement, type MenuAnchor } from "../ui/place-menu";
 import { ImagePreviewOverlay, imageSrc } from "./ImagePreview";
+import { Artifact } from "./WebArtifact";
+import { splitUploadedAttachmentLine } from "./user-attachment-line";
 import { CopyButton, RecallButton } from "./message-actions";
 
 export function UserMessage({
@@ -60,7 +62,9 @@ export function UserMessage({
 		return () => window.removeEventListener("pointerdown", onPointerDown, true);
 	}, [selectMode]);
 
-	const segments = message.text ? splitAnnotationMessage(message.text) : [];
+	const uploads = !window.pi && sessionId && !message.skill ? splitUploadedAttachmentLine(message.text || "") : { paths: [], text: message.text };
+	const displayText = uploads.text;
+	const segments = displayText ? splitAnnotationMessage(displayText) : [];
 	const cardSegments = segments.filter((segment) => segment.kind === "card");
 	const textSegments = segments.filter((segment) => segment.kind === "text");
 
@@ -107,6 +111,11 @@ export function UserMessage({
 						))}
 					</div>
 				)}
+				{sessionId && uploads.paths.length > 0 && (
+					<div className="mb-1 flex flex-wrap justify-end gap-1">
+						{uploads.paths.map(path => <Artifact key={path} session={sessionId} path={path} label={path} image={/\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(path)} />)}
+					</div>
+				)}
 				{cardSegments.length > 0 ? (
 					<>
 						{textSegments.length > 0 && (
@@ -136,9 +145,9 @@ export function UserMessage({
 						{message.text && <div className="whitespace-pre-wrap break-words">{message.text}</div>}
 					</div>
 				) : (
-					message.text && (
+					displayText && (
 						<div className="rounded-2xl rounded-br-md bg-bubble px-4 py-2.5 text-[15px] leading-[1.7] whitespace-pre-wrap break-words text-ink select-text">
-							{message.text}
+							{displayText}
 						</div>
 					)
 				)}

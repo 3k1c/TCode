@@ -371,6 +371,7 @@ export function Composer({ centered = false }: { centered?: boolean }) {
             for (const file of selected) {
                 // Models with vision can take images directly, without a server-side copy.
                 if (file.type.startsWith("image/") && imagesSupported) {
+                    if (import.meta.env.VITE_TCODE_HEADLESS && file.size > 20 * 1024 * 1024) throw new Error("Image exceeds 20 MiB upload limit");
                     const dataUrl = await new Promise<string>((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("圖片讀取失敗"));

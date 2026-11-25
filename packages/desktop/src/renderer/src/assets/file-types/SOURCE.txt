@@ -1,0 +1,3 @@
+﻿Material Icon Theme 5.40.0 (MIT)
+https://github.com/material-extensions/vscode-material-icon-theme
+Selected SVGs are unmodified. See LICENSE.

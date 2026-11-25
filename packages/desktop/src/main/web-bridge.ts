@@ -16,7 +16,7 @@ import { app } from "electron";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { invokeRegistry } from "./ipc/invoke";
 import { browseProjectFolders, createProjectFolder } from "./project-folders";
-import { handleWebFileUpload } from "./web-file-upload";
+import { handleWebFileUpload, hydrateWebPromptImages } from "./web-file-upload";
 import { sendWebArtifact } from "./web-file-download";
 import type { SessionMeta } from "@tcode/shared";
 
@@ -286,7 +286,10 @@ async function handleWsMessage(ws: WebSocket, raw: RawData): Promise<void> {
 	const handler = invokeRegistry.get(channel);
 	try {
 		if (!handler) throw new Error(`unknown channel: ${channel}`);
-		const result = await handler(message.args ?? undefined);
+		const args = channel === IpcChannels.prompt && process.env.TCODE_HEADLESS === "1"
+            ? await hydrateWebPromptImages(message.args, app.getPath("userData"))
+            : message.args;
+        const result = await handler(args ?? undefined);
 
 		const sessionId = socketSessions.get(ws);
 		const session = sessionId ? bridgeSessions.get(sessionId) : undefined;
@@ -664,7 +667,7 @@ export class WebBridgeService {
                         const sessions = await invokeRegistry.get(IpcChannels.listAllSessions)?.(undefined) as SessionMeta[] | undefined;
                         const session = sessions?.find(s => s.sessionId === sessionId);
                         if (!session || !target) throw new Error("Unknown session");
-                        await sendWebArtifact(res, session.cwd, sessionId, target, url.searchParams.get("preview") === "1");
+                        await sendWebArtifact(res, session.cwd, sessionId, target, url.searchParams.get("preview") === "1", url.searchParams.get("thumb") === "1", url.searchParams.get("meta") === "1", join(app.getPath("userData"), "uploads"));
                     } catch {
                         if (!res.headersSent) res.writeHead(404, { "cache-control": "no-store" }).end("File unavailable");
                     }

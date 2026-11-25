@@ -1,6 +1,7 @@
 import { CHANNEL_TABLE, type InvokeApi, IpcChannels, type PiApi } from "@tcode/shared";
 import { randomUid } from "./lib/uid";
 import { openRemoteFolderPicker } from "./lib/remote-folder-picker";
+import { uploadPromptImages } from "./lib/web-file-upload";
 
 declare global {
 	interface Window {
@@ -248,16 +249,23 @@ function createRemotePi(): PiApi {
 		};
 
 	async function remoteInvoke(channel: string, args: unknown): Promise<unknown> {
+        // Transfer binary image data via authenticated HTTP, not the 2 MiB WS control channel.
+        if (import.meta.env.VITE_TCODE_HEADLESS && channel === IpcChannels.prompt && args && typeof args === "object") {
+            const { images, ...rest } = args as { images?: {data: string; mimeType: string}[]; [key: string]: unknown };
+            if (images?.length) args = { ...rest, webImageRefs: await uploadPromptImages(images) };
+        }
 		ensureSocket();
 		const opened = ready;
 		if (opened) await opened;
 		const ws = socket;
 		if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("web 桥连接已断开");
 		const id = ++invokeSeq;
+        const wire = JSON.stringify({ kind: "invoke", id, channel, args: args ?? null });
+        if (new TextEncoder().encode(wire).byteLength > 2 * 1024 * 1024) throw new Error("Message exceeds the WebSocket control limit");
 		const result = new Promise<unknown>((resolve, reject) => {
 			pending.set(id, { resolve, reject });
 		});
-		ws.send(JSON.stringify({ kind: "invoke", id, channel, args: args ?? null }));
+		ws.send(wire);
 		return result;
 	}
 

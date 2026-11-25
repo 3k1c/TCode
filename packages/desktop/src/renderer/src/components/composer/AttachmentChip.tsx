@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { CloseIcon } from "../icons";
 import { Tooltip } from "../ui/Tooltip";
+import { FileTypeIcon, fileName } from "../ui/FileTypeIcon";
 
 export function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
 	const t = useT();
@@ -20,9 +21,9 @@ export function AttachmentChip({ path, onRemove }: { path: string; onRemove: () 
 
 	const chip = (
 		<span className="mt-0.5 flex max-w-[150px] select-none items-center gap-1 rounded-md bg-surface px-2 py-0.5 font-mono text-[12px] leading-5 text-blue-700 shadow-pop dark:text-blue-300">
-			<span aria-hidden="true">@</span>
+			<FileTypeIcon path={path} className="size-5" />
 			<span ref={pathRef} className="min-w-0 truncate" style={{ direction: "rtl", textAlign: "left" }}>
-				{path}
+				{fileName(path)}
 			</span>
 			<button
 				type="button"
