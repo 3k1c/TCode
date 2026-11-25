@@ -10,6 +10,7 @@ export function classifyMarkdownLink(href: string): MarkdownLink {
 	if (target.startsWith("#")) return { kind: "anchor" };
 	if (/^https?:\/\//i.test(target)) return { kind: "external", url: target };
 
+	if (/^[a-z]:[\\/]/i.test(target)) return { kind: "file", target };
 	if (target.startsWith("//") || (/^[a-z][a-z\d+.-]*:/i.test(target) && !/^file:\/\//i.test(target))) {
 		return { kind: "unsupported" };
 	}

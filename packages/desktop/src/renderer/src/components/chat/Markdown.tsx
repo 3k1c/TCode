@@ -37,7 +37,7 @@ export function Markdown({ text, streaming }: { text: string; streaming?: boolea
 	const sidePaneReady = useSidePaneStore((s) => s.cwd !== null);
 	const onLinkClick = (event: MouseEvent<HTMLDivElement>) => {
 		const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
-		if (!anchor || !event.currentTarget.contains(anchor)) return;
+		if (!anchor || !event.currentTarget.contains(anchor) || anchor.hasAttribute("data-tcode-artifact")) return;
 		const href = anchor.getAttribute("href");
 		if (!href) return;
 		const link = classifyMarkdownLink(href);

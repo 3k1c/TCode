@@ -17,6 +17,8 @@ import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { invokeRegistry } from "./ipc/invoke";
 import { browseProjectFolders, createProjectFolder } from "./project-folders";
 import { handleWebFileUpload } from "./web-file-upload";
+import { sendWebArtifact } from "./web-file-download";
+import type { SessionMeta } from "@tcode/shared";
 
 type BridgeExtensionHandler = (req: IncomingMessage, res: ServerResponse, url: URL) => void;
 let bridgeExtensionHandler: BridgeExtensionHandler | null = null;
@@ -654,6 +656,21 @@ export class WebBridgeService {
 				res.end(AUTH_DENIED_TEXT);
 				return;
 			}
+            if (url.pathname === "/api/artifact") {
+                const sessionId = url.searchParams.get("session") ?? "";
+                const target = url.searchParams.get("path") ?? "";
+                void (async () => {
+                    try {
+                        const sessions = await invokeRegistry.get(IpcChannels.listAllSessions)?.(undefined) as SessionMeta[] | undefined;
+                        const session = sessions?.find(s => s.sessionId === sessionId);
+                        if (!session || !target) throw new Error("Unknown session");
+                        await sendWebArtifact(res, session.cwd, sessionId, target, url.searchParams.get("preview") === "1");
+                    } catch {
+                        if (!res.headersSent) res.writeHead(404, { "cache-control": "no-store" }).end("File unavailable");
+                    }
+                })();
+                return;
+            }
 			if (url.pathname === "/api/project-folders") {
 				const headers = {
 					"content-type": "application/json; charset=utf-8",

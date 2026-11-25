@@ -9,6 +9,8 @@ describe("classifyMarkdownLink", () => {
 			"/Users/me/project/report.html",
 			"~/notes/a.md",
 			"file:///Users/me/a%20b.html",
+			"C:/Users/user/generated.png",
+			"D:\\Project\\report.pdf",
 		]) {
 			expect(classifyMarkdownLink(target)).toEqual({ kind: "file", target });
 		}

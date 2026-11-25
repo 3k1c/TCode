@@ -8,6 +8,7 @@ import { type CSSProperties, useCallback, useEffect, useState } from "react";
 import { chatLanguage, type Language, translate, useI18nStore, useT } from "../../i18n";
 import { ChevronRightIcon, CopyIcon, ErrorCircleIcon } from "../icons";
 import { CodeBlockShiki } from "./CodeBlockShiki";
+import { ArtifactLink, ArtifactImage } from "./WebArtifact";
 
 const MERMAID_PROPS = {
 	isStrict: false,
@@ -152,7 +153,7 @@ export function MermaidBlock(props: MermaidBlockNodeProps) {
 	);
 }
 
-setCustomComponents({ mermaid: MermaidBlock, code_block: CodeBlockShiki });
+setCustomComponents({ mermaid: MermaidBlock, code_block: CodeBlockShiki, link: ArtifactLink, image: ArtifactImage });
 
 syncMarkstreamI18n(chatLanguage(useI18nStore.getState().language));
 useI18nStore.subscribe((state, prev) => {
