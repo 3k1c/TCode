@@ -23,3 +23,65 @@ export function extractTodos(details: unknown): TodoItem[] | null {
 	}
 	return items;
 }
+
+/** Actual normalized result is preferred. Older PTC records contain only an args preview. */
+export function extractTodoToolUpdate(
+	toolName: string | undefined,
+	details: unknown,
+	isError = false,
+): TodoItem[] | null {
+	if (toolName === TODO_TOOL_NAME) return isError ? null : extractTodos(details);
+	if (toolName !== "run_code") return null;
+	const subCalls = (details as { subCalls?: unknown } | null)?.subCalls;
+	if (!Array.isArray(subCalls)) return null;
+	for (let i = subCalls.length - 1; i >= 0; i--) {
+		const call = subCalls[i];
+		if (call?.tool !== TODO_TOOL_NAME || call.ok !== true) continue;
+		const actual = extractTodos({ todos: call.todos });
+		if (actual !== null) return actual;
+		// Legacy history: only recover a complete, parseable successful request.
+		// An incomplete preview is not evidence of a completed or empty list.
+		if (typeof call.args !== "string") return null;
+		try {
+			const raw = extractTodos(JSON.parse(call.args));
+			if (raw === null) return null;
+			let active = false;
+			const normalized: TodoItem[] = [];
+			for (const item of raw) {
+				const content = item.content.trim();
+				if (!content) continue;
+				if (normalized.length === 50) break;
+				const status = item.status === "in_progress" && active ? "pending" : item.status;
+				if (status === "in_progress") active = true;
+				normalized.push({ content, status });
+			}
+			return normalized;
+		} catch {
+			return null;
+		}
+	}
+	return null;
+}
+
+export function latestTodosFromEntries(entries: readonly unknown[]): TodoItem[] | null {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i] as { message?: unknown; role?: string; type?: string } | undefined;
+		if (!entry) continue;
+		const m = (entry.message ?? entry) as {
+			role?: string;
+			type?: string;
+			toolName?: string;
+			isError?: boolean;
+			customType?: string;
+			details?: unknown;
+		};
+		const update =
+			m.role === "toolResult"
+				? extractTodoToolUpdate(m.toolName, m.details, m.isError)
+				: (m.role === "custom" || m.type === "custom_message") && m.customType === TODO_REMINDER_CUSTOM_TYPE
+					? extractTodos(m.details)
+					: null;
+		if (update !== null) return update;
+	}
+	return null;
+}

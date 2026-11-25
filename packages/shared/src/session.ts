@@ -2,6 +2,7 @@ import type { AgentSessionEvent as PiAgentSessionEvent } from "@earendil-works/p
 import type { SidePaneSnapshot } from "./sidepane";
 import type { SkillInvocationDisplay } from "./skill-invocation";
 import type { SubagentRunData } from "./subagent";
+import type { TodoItem } from "./todo";
 
 export interface SessionWorkspaceSnapshot {
 	files: string[];
@@ -545,6 +546,7 @@ export interface PtcSubCallEvent {
 	tool: string;
 
 	args?: string;
+	todos?: TodoItem[];
 	ok?: boolean;
 	durationMs?: number;
 	error?: string;

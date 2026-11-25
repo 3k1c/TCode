@@ -64,14 +64,15 @@ import type {
 } from "@tcode/shared";
 import {
 	AGENT_MESSAGE_CUSTOM_TYPE,
+	extractTodoToolUpdate,
 	extractTodos,
+	latestTodosFromEntries,
 	formatSkillCommand,
 	LANGUAGE_GATED_SKILLS,
 	parseExpandedSkillInvocation,
 	SKILL_SPACE_DEFAULTS,
 	skillDefaultsOffIn,
 	skillTierOf,
-	TODO_REMINDER_CUSTOM_TYPE,
 	TODO_TOOL_NAME,
 	type TodoItem,
 } from "@tcode/shared";
@@ -243,7 +244,6 @@ export class PiBackend {
 
 	private readonly openFlights = new KeyedSingleFlight<SessionMeta>();
 
-
 	private readonly channelSubscriptionIds = new Map<string, Set<string>>();
 
 	readonly modelPrefs = new ModelPrefsService(join(getAgentDir(), "model-prefs.json"));
@@ -414,6 +414,7 @@ export class PiBackend {
 	private readonly channelWatchCleanups = new WeakMap<PermissionModeRef, () => void>();
 
 	private readonly eventRates = new EventRateTracker();
+	private readonly liveTodos = new WeakMap<AgentSession, TodoItem[]>();
 	private modelRuntime: ModelRuntime | undefined;
 	private modelPromise: Promise<ModelRuntime> | undefined;
 
@@ -917,6 +918,26 @@ export class PiBackend {
 	}
 
 	private emitEvent(sessionId: string, event: SessionEvent): void {
+		const session = this.registry.get(sessionId)?.session;
+		if (session) {
+			if (event.type === "agent_start" || event.type === "agent_end") this.liveTodos.delete(session);
+			else if (
+				event.type === "ptc_subcall" &&
+				event.phase === "end" &&
+				event.ok === true &&
+				event.tool === TODO_TOOL_NAME
+			) {
+				const todos = extractTodos({ todos: event.todos });
+				if (todos !== null) this.liveTodos.set(session, todos);
+			} else if (event.type === "tool_execution_end" && event.toolName === TODO_TOOL_NAME) {
+				const todos = extractTodoToolUpdate(
+					event.toolName,
+					(event.result as { details?: unknown } | undefined)?.details,
+					event.isError,
+				);
+				if (todos !== null) this.liveTodos.set(session, todos);
+			}
+		}
 		this.eventRates.tick(sessionId);
 
 		if (event.type === "session_info_changed") log.info("session renamed", sessionId, { name: event.name });
@@ -1225,11 +1246,16 @@ export class PiBackend {
 		let model = runtime.getModel(provider, modelId);
 		if (provider === "openai" || provider === "openai-codex") {
 			const available = async () =>
-				(await runtime.getAvailable(provider, { signal: AbortSignal.timeout(15_000) }))
-					.find((candidate) => candidate.provider === provider && candidate.id === modelId);
+				(await runtime.getAvailable(provider, { signal: AbortSignal.timeout(15_000) })).find(
+					(candidate) => candidate.provider === provider && candidate.id === modelId,
+				);
 			model = await available();
 			if (!model) {
-				await runtime.refresh({ providers: [provider], allowNetwork: false, signal: AbortSignal.timeout(15_000) });
+				await runtime.refresh({
+					providers: [provider],
+					allowNetwork: false,
+					signal: AbortSignal.timeout(15_000),
+				});
 				model = await available();
 			}
 			if (!model) throw new Error(`Model unavailable for this account: ${provider}/${modelId}`);
@@ -1302,7 +1328,12 @@ export class PiBackend {
 		return this.eventRates.snapshot();
 	}
 
-	listActiveSessionRuntime(): { sessionId: string; streaming: boolean; compacting: boolean; stopping: boolean }[] {
+	listActiveSessionRuntime(): {
+		sessionId: string;
+		streaming: boolean;
+		compacting: boolean;
+		stopping: boolean;
+	}[] {
 		return this.registry.list().map(({ session }) => ({
 			sessionId: session.sessionId,
 			streaming: session.isStreaming,
@@ -1515,18 +1546,12 @@ export class PiBackend {
 
 	async getTodos(sessionId: string): Promise<TodoItem[]> {
 		const entry = await this.ensureRegisteredSession(sessionId);
-		for (const raw of [...entry.session.messages].reverse()) {
-			const m = raw as RawMessage;
-			if (m.role === "toolResult" && m.toolName === TODO_TOOL_NAME && !m.isError) {
-				const todos = extractTodos(m.details);
-				if (todos) return todos;
-			}
-			if (m.role === "custom" && m.customType === TODO_REMINDER_CUSTOM_TYPE) {
-				const todos = extractTodos(m.details);
-				if (todos) return todos;
-			}
-		}
-		return [];
+		return (
+			this.liveTodos.get(entry.session) ??
+			latestTodosFromEntries(entry.session.sessionManager.getBranch()) ??
+			latestTodosFromEntries(entry.session.messages) ??
+			[]
+		);
 	}
 
 	async forkSession(sessionId: string, ref: { entryId?: string; text?: string }): Promise<SessionMeta> {
@@ -1589,27 +1614,29 @@ export class PiBackend {
 		// Scoped Pi refreshes may temporarily expose the complete provider snapshot.
 		// Query each OpenAI provider's credential-filtered availability explicitly.
 		const availableOpenAI = new Map<string, Set<string>>();
-		await Promise.all(providers.filter((p) =>
-			p.configured && (p.id === "openai" || p.id === "openai-codex"),
-		).map(async (p) => {
-			try {
-				const models = await runtime.getAvailable(p.id, { signal: AbortSignal.timeout(15_000) });
-				availableOpenAI.set(p.id, new Set(models.map((m) => m.id)));
-			} catch {
-				availableOpenAI.set(p.id, new Set());
-				log.warn("OpenAI model availability check failed", { provider: p.id });
-			}
-		}));
+		await Promise.all(
+			providers
+				.filter((p) => p.configured && (p.id === "openai" || p.id === "openai-codex"))
+				.map(async (p) => {
+					try {
+						const models = await runtime.getAvailable(p.id, { signal: AbortSignal.timeout(15_000) });
+						availableOpenAI.set(p.id, new Set(models.map((m) => m.id)));
+					} catch {
+						availableOpenAI.set(p.id, new Set());
+						log.warn("OpenAI model availability check failed", { provider: p.id });
+					}
+				}),
+		);
 		return providers.flatMap((provider) =>
 			provider.configured
 				? provider.models
 						.filter((model) => !prefs.hiddenModels[provider.id]?.includes(model.id))
-					// The complete provider catalog is not the account's available model set.
-					.filter((model) =>
-						provider.id !== "openai" && provider.id !== "openai-codex"
-							? true
-							: availableOpenAI.get(provider.id)?.has(model.id) === true,
-					)
+						// The complete provider catalog is not the account's available model set.
+						.filter((model) =>
+							provider.id !== "openai" && provider.id !== "openai-codex"
+								? true
+								: availableOpenAI.get(provider.id)?.has(model.id) === true,
+						)
 						.map((model) => {
 							let thinkingLevels: string[] | undefined;
 							let imageInput: boolean | undefined;

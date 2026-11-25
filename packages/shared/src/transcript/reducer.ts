@@ -567,7 +567,11 @@ export function reduceEvent(state: SessionTranscriptState, event: SessionEvent):
 			};
 		}
 		case "ptc_subcall": {
-			return withStreaming(state, (streaming) => {
+			const todos =
+				event.phase === "end" && event.ok === true && event.tool === TODO_TOOL_NAME
+					? extractTodos({ todos: event.todos })
+					: null;
+			return withStreaming(todos !== null ? { ...state, todos } : state, (streaming) => {
 				if (event.phase === "end") {
 					const tools = streaming.tools.map((t) =>
 						t.id === event.id

@@ -1,5 +1,5 @@
 import type { ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { PtcSubCallEvent } from "@tcode/shared";
+import { extractTodos, TODO_TOOL_NAME, type PtcSubCallEvent, type TodoItem } from "@tcode/shared";
 import { createLogger } from "../../log";
 import type { PermissionEvaluator } from "../../permissions/evaluator";
 import type { PtcRunControl } from "./runner";
@@ -25,6 +25,7 @@ export interface PtcDispatchInfo {
 	durationMs: number;
 
 	args?: string;
+	todos?: TodoItem[];
 	error?: string;
 }
 
@@ -134,6 +135,7 @@ export class PtcBridge {
 		let ok = false;
 		let error: string | undefined;
 		let argsPreview: string | undefined;
+		let todos: TodoItem[] | undefined;
 		try {
 			if (this.disposed) throw new Error("run_code 已结束");
 			const raw =
@@ -181,6 +183,7 @@ export class PtcBridge {
 				throw new Error(text.length > 0 ? text : `工具 ${name} 返回错误`);
 			}
 			ok = true;
+			if (name === TODO_TOOL_NAME) todos = extractTodos(result.details) ?? undefined;
 			return truncate(text, MAX_SUB_CALL_RESULT_CHARS);
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -192,6 +195,7 @@ export class PtcBridge {
 				ok,
 				durationMs: Date.now() - startAt,
 				...(argsPreview !== undefined ? { args: argsPreview } : {}),
+				...(todos !== undefined ? { todos } : {}),
 				...(error ? { error } : {}),
 			};
 			this.summaries.push(info);
@@ -212,6 +216,7 @@ export class PtcBridge {
 				tool: name,
 				ok,
 				durationMs: info.durationMs,
+				...(todos !== undefined ? { todos } : {}),
 				...(error ? { error } : {}),
 			});
 		}

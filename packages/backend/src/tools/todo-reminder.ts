@@ -1,5 +1,10 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
-import { extractTodos, TODO_REMINDER_CUSTOM_TYPE, TODO_TOOL_NAME, type TodoItem } from "@tcode/shared";
+import {
+	extractTodoToolUpdate,
+	latestTodosFromEntries,
+	TODO_REMINDER_CUSTOM_TYPE,
+	type TodoItem,
+} from "@tcode/shared";
 import { formatTodoList } from "./todo";
 
 export function makeTodoReminderExtension(): InlineExtension {
@@ -9,19 +14,27 @@ export function makeTodoReminderExtension(): InlineExtension {
 			let currentTodos: TodoItem[] = [];
 			let needsReminder = false;
 
+			pi.on("session_start", (_event, ctx) => {
+				currentTodos = latestTodosFromEntries(ctx.sessionManager.getBranch()) ?? [];
+			});
 			pi.on("tool_execution_end", (event) => {
-				if (event.toolName !== TODO_TOOL_NAME || event.isError) return;
-				const todos = extractTodos((event.result as { details?: unknown } | undefined)?.details);
-				if (todos) currentTodos = todos;
+				const todos = extractTodoToolUpdate(
+					event.toolName,
+					(event.result as { details?: unknown } | undefined)?.details,
+					event.isError,
+				);
+				if (todos !== null) currentTodos = todos;
 			});
 
-			pi.on("session_compact", () => {
+			pi.on("session_compact", (_event, ctx) => {
+				currentTodos = latestTodosFromEntries(ctx.sessionManager.getBranch()) ?? currentTodos;
 				needsReminder = true;
 			});
 
 			pi.on("context", (event) => {
-				if (!needsReminder || currentTodos.length === 0) return;
+				if (!needsReminder) return;
 				needsReminder = false;
+				if (currentTodos.length === 0) return;
 				return {
 					messages: [
 						...event.messages,
